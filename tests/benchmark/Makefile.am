@@ -20,7 +20,7 @@ noinst_PROGRAMS = test_urcu test_urcu_dynamic_link test_urcu_timing \
 	test_urcu_wfq_dynlink test_urcu_wfs_dynlink \
 	test_urcu_wfcq_dynlink \
 	test_urcu_lfq_dynlink test_urcu_lfs_dynlink test_urcu_hash \
-	test_urcu_lfs_rcu_dynlink
+	test_urcu_lfs_rcu_dynlink test_urcu_peterson
 
 URCU_COMMON_LIB=$(top_builddir)/liburcu-common.la
 URCU_LIB=$(top_builddir)/liburcu.la
@@ -193,6 +193,9 @@ test_urcu_hash_SOURCES = test_urcu_hash.c test_urcu_hash.h \
 		test_urcu_hash_rw.c test_urcu_hash_unique.c
 test_urcu_hash_CFLAGS = -DRCU_QSBR $(AM_CFLAGS)
 test_urcu_hash_LDADD = $(URCU_QSBR_LIB) $(URCU_COMMON_LIB) $(URCU_CDS_LIB)
+
+test_urcu_peterson_SOURCES = test_urcu_peterson.c
+test_urcu_peterson_CFLAGS = $(AM_CFLAGS)
 
 .PHONY: bench
 
