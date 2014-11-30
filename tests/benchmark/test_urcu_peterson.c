@@ -126,14 +126,61 @@ static unsigned int nr_slow;
 
 static struct urcu_peterson_mutex pm;
 static __thread struct urcu_peterson_tls pt;
+static __thread int is_fast;
 
 static volatile int testval;
 
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static void do_fast(void)
+{
+	int readval;
+
+	urcu_pt_mutex_lock_single_fast(&pm, &pt);
+	//pthread_mutex_lock(&mutex);
+	readval = testval;
+	testval++;
+	assert(testval == readval + 1);
+	testval--;
+	if (caa_unlikely(fast_cs_len))
+		loop_sleep(fast_cs_len);
+	//pthread_mutex_unlock(&mutex);
+	urcu_pt_mutex_unlock_single_fast(&pm, &pt);
+}
+
+static void do_slow(void)
+{
+	int readval;
+
+	urcu_pt_mutex_lock_multi_slow(&pm, &pt);
+	readval = testval;
+	testval++;
+	assert(testval == readval + 1);
+	testval--;
+	if (caa_unlikely(slow_cs_len))
+		loop_sleep(slow_cs_len);
+	urcu_pt_mutex_unlock_multi_slow(&pm, &pt);
+}
+
+static void sighandler(int sig)
+{
+	switch (sig) {
+	case SIGUSR1:
+		if (is_fast)
+			do_fast();
+		else
+			do_slow();
+		break;
+	default:
+		break;
+	}
+}
+
 static void *thr_fast(void *_count)
 {
 	unsigned long long *count = _count;
+
+	is_fast = 1;
 
 	printf_verbose("thread_begin %s, tid %lu\n",
 			"fast", urcu_get_thread_id());
@@ -146,16 +193,7 @@ static void *thr_fast(void *_count)
 	cmm_smp_mb();
 
 	for (;;) {
-		urcu_pt_mutex_lock_single_fast(&pm, &pt);
-		//pthread_mutex_lock(&mutex);
-		assert(testval == 0);
-		testval = 1;
-		assert(testval == 1);
-		testval = 0;
-		if (caa_unlikely(fast_cs_len))
-			loop_sleep(fast_cs_len);
-		//pthread_mutex_unlock(&mutex);
-		urcu_pt_mutex_unlock_single_fast(&pm, &pt);
+		do_fast();
 
 		if (caa_unlikely(fast_delay))
 			loop_sleep(fast_delay);
@@ -177,6 +215,8 @@ static void *thr_slow(void *_count)
 {
 	unsigned long long *count = _count;
 
+	is_fast = 0;
+
 	printf_verbose("thread_begin %s, tid %lu\n",
 			"slow", urcu_get_thread_id());
 
@@ -188,14 +228,7 @@ static void *thr_slow(void *_count)
 	cmm_smp_mb();
 
 	for (;;) {
-		urcu_pt_mutex_lock_multi_slow(&pm, &pt);
-		assert(testval == 0);
-		testval = 1;
-		assert(testval == 1);
-		testval = 0;
-		if (caa_unlikely(slow_cs_len))
-			loop_sleep(slow_cs_len);
-		urcu_pt_mutex_unlock_multi_slow(&pm, &pt);
+		do_slow();
 
 		if (caa_unlikely(slow_delay))
 			loop_sleep(slow_delay);
@@ -227,6 +260,29 @@ static void show_usage(int argc, char **argv)
 	printf("\n");
 }
 
+static int set_signal_handler(void)
+{
+	int ret = 0;
+	struct sigaction sa;
+	sigset_t sigset;
+
+	if ((ret = sigemptyset(&sigset)) < 0) {
+		perror("sigemptyset");
+		return ret;
+	}
+
+	sa.sa_handler = sighandler;
+	sa.sa_mask = sigset;
+	sa.sa_flags = 0;
+	if ((ret = sigaction(SIGUSR1, &sa, NULL)) < 0) {
+		perror("sigaction");
+		return ret;
+	}
+	printf("Signal handler set for SIGUSR1\n");
+
+	return ret;
+}
+
 int main(int argc, char **argv)
 {
 	int err;
@@ -238,6 +294,7 @@ int main(int argc, char **argv)
 			   tot_slow_loops = 0,
 			   tot_loops = 0;
 	int i, a, retval = 0;
+	struct timespec init_time;
 
 	if (argc < 4) {
 		show_usage(argc, argv);
@@ -331,6 +388,8 @@ int main(int argc, char **argv)
 
 	next_aff = 0;
 
+	set_signal_handler();
+
 	for (i = 0; i < nr_fast; i++) {
 		err = pthread_create(&tid_fast[i], NULL, thr_fast,
 				     &count_fast[i]);
@@ -348,10 +407,25 @@ int main(int argc, char **argv)
 
 	test_go = 1;
 
+#if 0
 	for (i = 0; i < duration; i++) {
 		sleep(1);
 		if (verbose_mode)
 			(void) write(1, ".", 1);
+	}
+#endif
+	clock_gettime(CLOCK_MONOTONIC, &init_time);
+	for (;;) {
+		struct timespec cur_time;
+		int i;
+
+		for (i = 0; i < nr_fast; i++)
+			pthread_kill(tid_fast[i], SIGUSR1);
+		for (i = 0; i < nr_slow; i++)
+			pthread_kill(tid_slow[i], SIGUSR1);
+		clock_gettime(CLOCK_MONOTONIC, &cur_time);
+		if (cur_time.tv_sec > init_time.tv_sec + duration)
+			break;
 	}
 
 	test_stop = 1;
