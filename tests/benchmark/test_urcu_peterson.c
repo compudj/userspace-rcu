@@ -125,6 +125,7 @@ static unsigned int nr_fast;
 static unsigned int nr_slow;
 
 static struct urcu_peterson_mutex pm;
+static __thread struct urcu_peterson_tls pt;
 
 static volatile int testval;
 
@@ -145,7 +146,7 @@ static void *thr_fast(void *_count)
 	cmm_smp_mb();
 
 	for (;;) {
-		urcu_pt_mutex_lock_single_fast(&pm);
+		urcu_pt_mutex_lock_single_fast(&pm, &pt);
 		//pthread_mutex_lock(&mutex);
 		assert(testval == 0);
 		testval = 1;
@@ -154,7 +155,7 @@ static void *thr_fast(void *_count)
 		if (caa_unlikely(fast_cs_len))
 			loop_sleep(fast_cs_len);
 		//pthread_mutex_unlock(&mutex);
-		urcu_pt_mutex_unlock_single_fast(&pm);
+		urcu_pt_mutex_unlock_single_fast(&pm, &pt);
 
 		if (caa_unlikely(fast_delay))
 			loop_sleep(fast_delay);
@@ -187,14 +188,14 @@ static void *thr_slow(void *_count)
 	cmm_smp_mb();
 
 	for (;;) {
-		urcu_pt_mutex_lock_multi_slow(&pm);
+		urcu_pt_mutex_lock_multi_slow(&pm, &pt);
 		assert(testval == 0);
 		testval = 1;
 		assert(testval == 1);
 		testval = 0;
 		if (caa_unlikely(slow_cs_len))
 			loop_sleep(slow_cs_len);
-		urcu_pt_mutex_unlock_multi_slow(&pm);
+		urcu_pt_mutex_unlock_multi_slow(&pm, &pt);
 
 		if (caa_unlikely(slow_delay))
 			loop_sleep(slow_delay);

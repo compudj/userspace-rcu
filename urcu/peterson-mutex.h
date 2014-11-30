@@ -142,8 +142,13 @@ static inline void membarrier_after_implicit_mb_slow(void)
 struct urcu_peterson_mutex {
 	/* flag[0] is single-thread fast path flag. */
 	/* flag[1] is multi-thread slow path flag. */
-	int flag[2];
+	unsigned long flag[2];
 	int turn;
+};
+
+struct urcu_peterson_tls {
+	int nest_cs;
+	int nest_all;
 };
 
 /*
@@ -151,12 +156,20 @@ struct urcu_peterson_mutex {
  * frequently.
  */
 static inline
-void urcu_pt_mutex_lock_single_fast(struct urcu_peterson_mutex *pm)
+void urcu_pt_mutex_lock_single_fast(struct urcu_peterson_mutex *pm,
+		struct urcu_peterson_tls *pt)
 {
+	pt->nest_all++;
+	cmm_barrier();
 	CMM_STORE_SHARED(pm->flag[0], 1);
+
 	/* Store flag[0] before store turn. */
 	membarrier_smp_wmb_fast();
-	CMM_STORE_SHARED(pm->turn, 1);
+	if (!pt->nest_cs)
+		CMM_STORE_SHARED(pm->turn, 1);
+	cmm_barrier();
+	pt->nest_cs++;
+
 	/* Store flag[0], turn before load flag[1]. */
 	membarrier_smp_mb_fast();
 	while (CMM_LOAD_SHARED(pm->flag[1]) && CMM_LOAD_SHARED(pm->turn) == 1)
@@ -171,29 +184,39 @@ void urcu_pt_mutex_lock_single_fast(struct urcu_peterson_mutex *pm)
 }
 
 static inline
-void urcu_pt_mutex_unlock_single_fast(struct urcu_peterson_mutex *pm)
+void urcu_pt_mutex_unlock_single_fast(struct urcu_peterson_mutex *pm,
+		struct urcu_peterson_tls *pt)
 {
 	/* End of critical section. */
 	/* c.s. does not leak out of store to flag[0]. */
 	membarrier_smp_mb_fast();
-	CMM_STORE_SHARED(pm->flag[0], 0);
+	pt->nest_cs--;
+	cmm_barrier();
+	if (!--pt->nest_all)
+		CMM_STORE_SHARED(pm->flag[0], 0);
 }
 
 /*
  * Call from multiple concurrent threads. Slow path using lock prefix.
  */
 static inline
-void urcu_pt_mutex_lock_multi_slow(struct urcu_peterson_mutex *pm)
+void urcu_pt_mutex_lock_multi_slow(struct urcu_peterson_mutex *pm,
+		struct urcu_peterson_tls *pt)
 {
-	int ret;
+	unsigned long ret;
 
+	pt->nest_all++;
+	cmm_barrier();
 	/* Busy-wait on getting slow path flag. */
 	do {
-		ret = uatomic_cmpxchg(&pm->flag[1], 0, 1);
-	} while (ret != 0);
+		ret = uatomic_cmpxchg(&pm->flag[1], 0, (unsigned long) pt);
+	} while (ret != 0 && ret != (unsigned long) pt);
 	/* Store flag[1] before store turn, implicit by cmpxchg. */
 	membarrier_after_implicit_mb_slow();
-	CMM_STORE_SHARED(pm->turn, 0);
+	if (!pt->nest_cs)
+		CMM_STORE_SHARED(pm->turn, 0);
+	cmm_barrier();
+	pt->nest_cs++;
 	/* Store flag[1], turn before load flag[0]. */
 	membarrier_smp_mb_slow();
 	while (CMM_LOAD_SHARED(pm->flag[0]) && CMM_LOAD_SHARED(pm->turn) == 0)
@@ -208,12 +231,16 @@ void urcu_pt_mutex_lock_multi_slow(struct urcu_peterson_mutex *pm)
 }
 
 static inline
-void urcu_pt_mutex_unlock_multi_slow(struct urcu_peterson_mutex *pm)
+void urcu_pt_mutex_unlock_multi_slow(struct urcu_peterson_mutex *pm,
+		struct urcu_peterson_tls *pt)
 {
 	/* End of critical section. */
 	/* c.s. does not leak out of store to flag[1]. */
 	membarrier_smp_mb_slow();
-	CMM_STORE_SHARED(pm->flag[1], 0);
+	pt->nest_cs--;
+	cmm_barrier();
+	if (!--pt->nest_all)
+		CMM_STORE_SHARED(pm->flag[1], 0);
 }
 
 #ifdef __cplusplus
