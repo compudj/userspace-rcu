@@ -91,6 +91,7 @@ AC_CHECK_FUNCS([ \
 	strerror \
 	strtoul \
 	sysconf \
+	sched_getcpu
 ])
 
 # AC_FUNC_MALLOC causes problems when cross-compiling.
