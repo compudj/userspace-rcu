@@ -211,7 +211,7 @@ static void wait_for_cpus(void)
 	 * previous period.
 	 */
 	for (;;) {
-		unsigned long sum = 0;	/* sum lock - sum unlock */
+		uintptr_t sum = 0;	/* sum lock - sum unlock */
 		int i;
 
 		if (wait_loops < RCU_QS_ACTIVE_ATTEMPTS)

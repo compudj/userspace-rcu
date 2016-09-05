@@ -31,6 +31,7 @@
 #include <assert.h>
 #include <errno.h>
 
+#include <urcu/rseq.h>
 #include <urcu/arch.h>
 #include <urcu/tls-compat.h>
 #include "cpuset.h"
@@ -165,6 +166,7 @@ void *thr_reader(void *_count)
 	set_affinity();
 
 	rcu_register_thread();
+	rseq_register_current_thread();
 	assert(!rcu_read_ongoing());
 
 	while (!test_go)
@@ -192,6 +194,7 @@ void *thr_reader(void *_count)
 	*count = URCU_TLS(nr_reads);
 	printf_verbose("thread_end %s, tid %lu\n",
 			"reader", urcu_get_thread_id());
+	rseq_unregister_current_thread();
 	return ((void*)1);
 
 }

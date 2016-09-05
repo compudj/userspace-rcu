@@ -41,6 +41,7 @@
 #include <urcu/uatomic.h>
 #include <urcu/futex.h>
 #include <urcu/tls-compat.h>
+#include <urcu/rseq.h>
 #include <urcu/debug.h>
 
 #ifdef __cplusplus
@@ -65,6 +66,8 @@ extern "C" {
  */
 
 extern int rcu_has_sys_membarrier;
+
+extern struct rseq_lock urcu_percpu_rlock;
 
 static inline void smp_mb_slave(void)
 {
@@ -110,8 +113,10 @@ struct rcu_reader {
 extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 
 struct rcu_percpu_count {
-	unsigned long lock;
-	unsigned long unlock;
+	//unsigned long lock;
+	//unsigned long unlock;
+	uintptr_t lock;
+	uintptr_t unlock;
 };
 
 #define RCU_PERCPU_ARRAY_COUNT	2
@@ -143,6 +148,46 @@ static inline void wake_up_gp(void)
 	}
 }
 
+static inline void _rcu_inc_lock(unsigned int period)
+{
+#if 1
+	struct rseq_state rseq_state;
+	intptr_t *targetptr, newval;
+	int cpu;
+	bool result;
+
+	do_rseq(&urcu_percpu_rlock, rseq_state, cpu, result,
+		targetptr, newval,
+		{
+			//newval = (intptr_t)(rcu_cpus.p[cpu].count[period].lock + 1);
+			targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].lock;
+			newval = (intptr_t)((uintptr_t)*targetptr + 1);
+		});
+#else
+	uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].lock);
+#endif
+}
+
+static inline void _rcu_inc_unlock(unsigned int period)
+{
+#if 1
+	struct rseq_state rseq_state;
+	intptr_t *targetptr, newval;
+	int cpu;
+	bool result;
+
+	do_rseq(&urcu_percpu_rlock, rseq_state, cpu, result,
+		targetptr, newval,
+		{
+			//newval = (intptr_t)(rcu_cpus.p[cpu].count[period].unlock + 1);
+			targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].unlock;
+			newval = (intptr_t)((uintptr_t)*targetptr + 1);
+		});
+#else
+	uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].unlock);
+#endif
+}
+
 /*
  * Helper for _rcu_read_lock().  The format of rcu_gp.ctr (as well as
  * the per-thread rcu_reader.ctr) has the upper bits containing a count of
@@ -155,7 +200,7 @@ static inline void _rcu_read_lock_update(unsigned long tmp)
 	if (caa_likely(!(tmp & RCU_GP_CTR_NEST_MASK))) {
 		tmp = _CMM_LOAD_SHARED(rcu_gp.ctr);
 		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp);
-		uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[!!(tmp & RCU_GP_CTR_PHASE)].lock);
+		_rcu_inc_lock(!!(tmp & RCU_GP_CTR_PHASE));
 		smp_mb_slave();
 	} else
 		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp + RCU_GP_COUNT);
@@ -194,7 +239,7 @@ static inline void _rcu_read_unlock_update_and_wakeup(unsigned long tmp)
 	if (caa_likely((tmp & RCU_GP_CTR_NEST_MASK) == RCU_GP_COUNT)) {
 		smp_mb_slave();
 		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp - RCU_GP_COUNT);
-		uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[!!(tmp & RCU_GP_CTR_PHASE)].unlock);
+		_rcu_inc_unlock(!!(tmp & RCU_GP_CTR_PHASE));
 		smp_mb_slave();
 		wake_up_gp();
 	} else
