@@ -40,10 +40,12 @@ noinst_PROGRAMS = test_urcu test_urcu_dynamic_link test_urcu_timing \
 	test_urcu_wfq_dynlink test_urcu_wfs_dynlink \
 	test_urcu_wfcq_dynlink \
 	test_urcu_lfq_dynlink test_urcu_lfs_dynlink test_urcu_hash \
-	test_urcu_lfs_rcu_dynlink
+	test_urcu_lfs_rcu_dynlink \
+	test_urcu_percpu test_urcu_percpu_dynamic_link
 
 URCU_COMMON_LIB=$(top_builddir)/src/liburcu-common.la
 URCU_LIB=$(top_builddir)/src/liburcu.la
+URCU_PERCPU_LIB=$(top_builddir)/src/liburcu-percpu.la
 URCU_QSBR_LIB=$(top_builddir)/src/liburcu-qsbr.la
 URCU_MB_LIB=$(top_builddir)/src/liburcu-mb.la
 URCU_SIGNAL_LIB=$(top_builddir)/src/liburcu-signal.la
@@ -66,6 +68,14 @@ test_urcu_yield_SOURCES = test_urcu.c
 test_urcu_yield_LDADD = $(URCU_LIB) $(DEBUG_YIELD_LIB)
 test_urcu_yield_CFLAGS = -DDEBUG_YIELD $(AM_CFLAGS)
 
+test_urcu_percpu_SOURCES = test_urcu_percpu.c
+test_urcu_percpu_LDADD = $(URCU_PERCPU_LIB)
+test_urcu_percpu_CFLAGS = $(AM_CFLAGS)
+
+test_urcu_percpu_dynamic_link_SOURCES = test_urcu_percpu.c
+test_urcu_percpu_dynamic_link_LDADD = $(URCU_PERCPU_LIB)
+test_urcu_percpu_dynamic_link_CFLAGS = -DDYNAMIC_LINK_TEST \
+		$(AM_CFLAGS)
 
 test_urcu_qsbr_SOURCES = test_urcu_qsbr.c
 test_urcu_qsbr_LDADD = $(URCU_QSBR_LIB)
