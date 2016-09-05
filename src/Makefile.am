@@ -42,7 +42,7 @@ liburcu_la_LIBADD = liburcu-common.la
 liburcu_qsbr_la_SOURCES = urcu-qsbr.c urcu-pointer.c $(COMPAT)
 liburcu_qsbr_la_LIBADD = liburcu-common.la
 
-liburcu_percpu_la_SOURCES = urcu-percpu.c urcu-pointer.c $(COMPAT)
+liburcu_percpu_la_SOURCES = urcu-percpu.c urcu-pointer.c rseq.c $(COMPAT)
 liburcu_percpu_la_LIBADD = liburcu-common.la
 
 liburcu_mb_la_SOURCES = urcu.c urcu-pointer.c $(COMPAT)

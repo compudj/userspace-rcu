@@ -35,6 +35,7 @@
 #include <string.h>
 #include <errno.h>
 #include <poll.h>
+#include "urcu/rseq.h"
 
 #include "urcu/arch.h"
 #include "urcu/wfcqueue.h"
@@ -108,6 +109,8 @@ enum membarrier_cmd {
 
 static int init_done;
 int rcu_has_sys_membarrier;
+
+struct rseq_lock urcu_percpu_rlock;
 
 void __attribute__((constructor)) rcu_init(void);
 void __attribute__((destructor)) rcu_destroy(void);
@@ -410,6 +413,8 @@ void rcu_init(void)
 	if (ret >= 0 && (ret & MEMBARRIER_CMD_SHARED)) {
 		rcu_has_sys_membarrier = 1;
 	}
+	if (rseq_init_lock(&urcu_percpu_rlock))
+		abort();
 	mutex_lock(&rcu_registry_lock);
 	rcu_percpu_init();
 	mutex_unlock(&rcu_registry_lock);
@@ -419,6 +424,8 @@ void rcu_destroy(void)
 {
 	free(rcu_cpus.p);
 	rcu_cpus.p = NULL;
+	if (rseq_destroy_lock(&urcu_percpu_rlock))
+		abort();
 	init_done = 0;
 }
 
