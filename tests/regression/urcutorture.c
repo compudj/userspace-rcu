@@ -11,6 +11,9 @@
 #ifdef RCU_MEMBARRIER
 #include <urcu.h>
 #endif
+#ifdef RCU_PERCPU
+#include <urcu-percpu.h>
+#endif
 #ifdef RCU_SIGNAL
 #include <urcu.h>
 #endif
