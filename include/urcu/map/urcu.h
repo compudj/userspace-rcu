@@ -64,6 +64,7 @@
 #define synchronize_rcu			synchronize_rcu_memb
 #define rcu_reader			rcu_reader_memb
 #define rcu_gp				rcu_gp_memb
+#define urcu_domain			urcu_domain_memb
 
 #define get_cpu_call_rcu_data		get_cpu_call_rcu_data_memb
 #define get_call_rcu_thread		get_call_rcu_thread_memb
@@ -125,6 +126,7 @@
 #define synchronize_rcu			synchronize_rcu_sig
 #define rcu_reader			rcu_reader_sig
 #define rcu_gp				rcu_gp_sig
+#define urcu_domain			urcu_domain_sig
 
 #define get_cpu_call_rcu_data		get_cpu_call_rcu_data_sig
 #define get_call_rcu_thread		get_call_rcu_thread_sig
@@ -183,6 +185,7 @@
 #define synchronize_rcu			synchronize_rcu_mb
 #define rcu_reader			rcu_reader_mb
 #define rcu_gp				rcu_gp_mb
+#define urcu_domain			urcu_domain_mb
 
 #define get_cpu_call_rcu_data		get_cpu_call_rcu_data_mb
 #define get_call_rcu_thread		get_call_rcu_thread_mb
