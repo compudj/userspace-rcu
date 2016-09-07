@@ -152,6 +152,34 @@ struct rcu_reader {
 
 extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 
+struct urcu_domain {
+	/*
+	 * urcu_domain.gp_lock ensures mutual exclusion between threads calling
+	 * synchronize_rcu().
+	 */
+	pthread_mutex_t gp_lock;
+	/*
+	 * urcu_domain.registry_lock ensures mutual exclusion between threads
+	 * registering and unregistering themselves to/from the
+	 * registry, and with threads reading that registry from
+	 * synchronize_rcu(). However, this lock is not held all the way
+	 * through the completion of awaiting for the grace period. It
+	 * is sporadically released between iterations on the registry.
+	 * urcu_domain.registry_lock may nest inside urcu_domain.gp_lock.
+	 */
+	pthread_mutex_t registry_lock;
+	struct cds_list_head registry;
+	struct rcu_gp gp;
+};
+
+#define URCU_DOMAIN_INIT(urcu_domain)	\
+	{ \
+		.gp_lock = PTHREAD_MUTEX_INITIALIZER, \
+		.registry_lock = PTHREAD_MUTEX_INITIALIZER, \
+		.registry = CDS_LIST_HEAD_INIT(urcu_domain.registry), \
+		.gp = { .ctr = RCU_GP_COUNT }, \
+	}
+
 /*
  * Wake-up waiting synchronize_rcu(). Called from many concurrent threads.
  */
