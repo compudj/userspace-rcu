@@ -43,6 +43,9 @@ extern "C" {
 
 #include <urcu/map/urcu-bp.h>
 
+struct urcu_domain;
+struct rcu_reader_reg;
+
 /*
  * Important !
  *
@@ -72,6 +75,10 @@ extern "C" {
  *
  * Mark the beginning and end of a read-side critical section.
  */
+#define srcu_read_lock_bp		_srcu_read_lock
+#define srcu_read_unlock_bp		_srcu_read_unlock
+#define srcu_read_ongoing_bp		_srcu_read_ongoing
+
 #define rcu_read_lock_bp		_rcu_read_lock
 #define rcu_read_unlock_bp		_rcu_read_unlock
 #define rcu_read_ongoing_bp		_rcu_read_ongoing
@@ -83,10 +90,24 @@ extern "C" {
 
 #else /* !_LGPL_SOURCE */
 
+#ifndef URCU_BP_READER_STRUCT
+#define URCU_BP_READER_STRUCT
+struct rcu_reader {
+	struct rcu_reader_reg *readerp;
+};
+#endif
+
 /*
  * library wrappers to be used by non-LGPL compatible source code.
  * See LGPL-only urcu/static/urcu-pointer.h for documentation.
  */
+
+extern void srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern void srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern int srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
 
 extern void rcu_read_lock(void);
 extern void rcu_read_unlock(void);
@@ -138,6 +159,8 @@ extern void *rcu_set_pointer_sym_bp(void **p, void *v);
 
 #endif /* !_LGPL_SOURCE */
 
+extern void synchronize_srcu(struct urcu_domain *urcu_domain);
+
 extern void synchronize_rcu(void);
 
 /*
@@ -146,6 +169,10 @@ extern void synchronize_rcu(void);
  * expected to immediately perform an exec(). For pthread users, see
  * pthread_atfork(3).
  */
+extern void srcu_bp_before_fork(struct urcu_domain *urcu_domain);
+extern void srcu_bp_after_fork_parent(struct urcu_domain *urcu_domain);
+extern void srcu_bp_after_fork_child(struct urcu_domain *urcu_domain);
+
 extern void rcu_bp_before_fork(void);
 extern void rcu_bp_after_fork_parent(void);
 extern void rcu_bp_after_fork_child(void);
@@ -153,6 +180,16 @@ extern void rcu_bp_after_fork_child(void);
 /*
  * In the bulletproof version, the following functions are no-ops.
  */
+static inline void srcu_register_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+}
+
+static inline void srcu_unregister_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+}
+
 static inline void rcu_register_thread(void)
 {
 }
@@ -168,6 +205,21 @@ static inline void rcu_init(void)
 /*
  * Q.S. reporting are no-ops for these URCU flavors.
  */
+static inline void srcu_quiescent_state(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+}
+
+static inline void srcu_thread_offline(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+}
+
+static inline void srcu_thread_online(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+}
+
 static inline void rcu_quiescent_state(void)
 {
 }
