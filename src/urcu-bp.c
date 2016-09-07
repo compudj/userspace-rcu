@@ -84,15 +84,12 @@ void *mremap_wrapper(void *old_address, size_t old_size,
 #define INIT_NR_THREADS		8
 #define ARENA_INIT_ALLOC		\
 	sizeof(struct registry_chunk)	\
-	+ INIT_NR_THREADS * sizeof(struct rcu_reader)
+	+ INIT_NR_THREADS * sizeof(struct rcu_reader_reg)
 
 /*
  * Active attempts to check for reader Q.S. before calling sleep().
  */
 #define RCU_QS_ACTIVE_ATTEMPTS 100
-
-static
-int rcu_bp_refcount;
 
 /* If the headers do not support membarrier system call, fall back smp_mb. */
 #ifdef __NR_membarrier
@@ -106,43 +103,12 @@ enum membarrier_cmd {
 	MEMBARRIER_CMD_SHARED = (1 << 0),
 };
 
-static
-void __attribute__((constructor)) rcu_bp_init(void);
-static
-void __attribute__((destructor)) rcu_bp_exit(void);
+static void srcu_bp_init(struct urcu_domain *urcu_domain);
+static void srcu_bp_exit(struct urcu_domain *urcu_domain);
+static void __attribute__((constructor)) rcu_bp_init(void);
+static void __attribute__((destructor)) rcu_bp_exit(void);
 
 int urcu_bp_has_sys_membarrier;
-
-/*
- * rcu_gp_lock ensures mutual exclusion between threads calling
- * synchronize_rcu().
- */
-static pthread_mutex_t rcu_gp_lock = PTHREAD_MUTEX_INITIALIZER;
-/*
- * rcu_registry_lock ensures mutual exclusion between threads
- * registering and unregistering themselves to/from the registry, and
- * with threads reading that registry from synchronize_rcu(). However,
- * this lock is not held all the way through the completion of awaiting
- * for the grace period. It is sporadically released between iterations
- * on the registry.
- * rcu_registry_lock may nest inside rcu_gp_lock.
- */
-static pthread_mutex_t rcu_registry_lock = PTHREAD_MUTEX_INITIALIZER;
-
-static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
-static int initialized;
-
-static pthread_key_t urcu_bp_key;
-
-struct rcu_gp rcu_gp = { .ctr = RCU_GP_COUNT };
-
-/*
- * Pointer to registry elements. Written to only by each individual reader. Read
- * by both the reader and the writers.
- */
-DEFINE_URCU_TLS(struct rcu_reader *, rcu_reader);
-
-static CDS_LIST_HEAD(registry);
 
 struct registry_chunk {
 	size_t data_len;		/* data length */
@@ -155,12 +121,54 @@ struct registry_arena {
 	struct cds_list_head chunk_list;
 };
 
-static struct registry_arena registry_arena = {
-	.chunk_list = CDS_LIST_HEAD_INIT(registry_arena.chunk_list),
+struct urcu_domain {
+	/*
+	 * urcu_domain.gp_lock ensures mutual exclusion between threads calling
+	 * synchronize_rcu().
+	 */
+	pthread_mutex_t gp_lock;
+	/*
+	 * registry_lock ensures mutual exclusion between threads
+	 * registering and unregistering themselves to/from the
+	 * registry, and with threads reading that registry from
+	 * synchronize_rcu(). However, this lock is not held all the way
+	 * through the completion of awaiting for the grace period. It
+	 * is sporadically released between iterations on the registry.
+	 * registry_lock may nest inside urcu_domain.gp_lock.
+	 */
+	pthread_mutex_t registry_lock;
+	struct cds_list_head registry;
+	struct rcu_gp gp;
+	struct registry_arena registry_arena;
+
+	pthread_mutex_t init_lock;
+	pthread_key_t bp_key;
+	int bp_refcount;
+	int initialized;
+
+	/* Saved fork signal mask, protected by gp_lock */
+	sigset_t saved_fork_signal_mask;
 };
 
-/* Saved fork signal mask, protected by rcu_gp_lock */
-static sigset_t saved_fork_signal_mask;
+#define URCU_DOMAIN_INIT(urcu_domain) \
+	{ \
+		.gp_lock = PTHREAD_MUTEX_INITIALIZER, \
+		.registry_lock = PTHREAD_MUTEX_INITIALIZER, \
+		.registry = CDS_LIST_HEAD_INIT(urcu_domain.registry), \
+		.gp = { .ctr = RCU_GP_COUNT }, \
+		.registry_arena = { .chunk_list = CDS_LIST_HEAD_INIT(urcu_domain.registry_arena.chunk_list) }, \
+		.init_lock = PTHREAD_MUTEX_INITIALIZER, \
+	}
+
+static struct urcu_domain _urcu_bp_main_domain =
+		URCU_DOMAIN_INIT(_urcu_bp_main_domain);
+struct urcu_domain *urcu_bp_main_domain = &_urcu_bp_main_domain;
+
+/*
+ * Pointer to registry elements. Written to only by each individual reader. Read
+ * by both the reader and the writers.
+ */
+DEFINE_URCU_TLS(struct rcu_reader, rcu_reader);
 
 static void mutex_lock(pthread_mutex_t *mutex)
 {
@@ -200,12 +208,14 @@ static void smp_mb_master(void)
  * Always called with rcu_registry lock held. Releases this lock between
  * iterations and grabs it again. Holds the lock when it returns.
  */
-static void wait_for_readers(struct cds_list_head *input_readers,
+static void wait_for_readers(struct urcu_domain *urcu_domain,
+			struct cds_list_head *input_readers,
 			struct cds_list_head *cur_snap_readers,
 			struct cds_list_head *qsreaders)
 {
 	unsigned int wait_loops = 0;
-	struct rcu_reader *index, *tmp;
+	struct rcu_reader_reg *index, *tmp;
+	struct rcu_gp *gp = &urcu_domain->gp;
 
 	/*
 	 * Wait for each thread URCU_TLS(rcu_reader).ctr to either
@@ -217,7 +227,7 @@ static void wait_for_readers(struct cds_list_head *input_readers,
 			wait_loops++;
 
 		cds_list_for_each_entry_safe(index, tmp, input_readers, node) {
-			switch (rcu_reader_state(&index->ctr)) {
+			switch (rcu_reader_state(gp, index)) {
 			case RCU_READER_ACTIVE_CURRENT:
 				if (cur_snap_readers) {
 					cds_list_move(&index->node,
@@ -243,18 +253,18 @@ static void wait_for_readers(struct cds_list_head *input_readers,
 			break;
 		} else {
 			/* Temporarily unlock the registry lock. */
-			mutex_unlock(&rcu_registry_lock);
+			mutex_unlock(&urcu_domain->registry_lock);
 			if (wait_loops >= RCU_QS_ACTIVE_ATTEMPTS)
 				(void) poll(NULL, 0, RCU_SLEEP_DELAY_MS);
 			else
 				caa_cpu_relax();
 			/* Re-lock the registry lock before the next loop. */
-			mutex_lock(&rcu_registry_lock);
+			mutex_lock(&urcu_domain->registry_lock);
 		}
 	}
 }
 
-void synchronize_rcu(void)
+void synchronize_srcu(struct urcu_domain *urcu_domain)
 {
 	CDS_LIST_HEAD(cur_snap_readers);
 	CDS_LIST_HEAD(qsreaders);
@@ -266,11 +276,11 @@ void synchronize_rcu(void)
 	ret = pthread_sigmask(SIG_BLOCK, &newmask, &oldmask);
 	assert(!ret);
 
-	mutex_lock(&rcu_gp_lock);
+	mutex_lock(&urcu_domain->gp_lock);
 
-	mutex_lock(&rcu_registry_lock);
+	mutex_lock(&urcu_domain->registry_lock);
 
-	if (cds_list_empty(&registry))
+	if (cds_list_empty(&urcu_domain->registry))
 		goto out;
 
 	/* All threads should read qparity before accessing data structure
@@ -283,7 +293,8 @@ void synchronize_rcu(void)
 	 * wait_for_readers() can release and grab again rcu_registry_lock
 	 * interally.
 	 */
-	wait_for_readers(&registry, &cur_snap_readers, &qsreaders);
+	wait_for_readers(urcu_domain, &urcu_domain->registry,
+			&cur_snap_readers, &qsreaders);
 
 	/*
 	 * Adding a cmm_smp_mb() which is _not_ formally required, but makes the
@@ -293,7 +304,8 @@ void synchronize_rcu(void)
 	cmm_smp_mb();
 
 	/* Switch parity: 0 -> 1, 1 -> 0 */
-	CMM_STORE_SHARED(rcu_gp.ctr, rcu_gp.ctr ^ RCU_GP_CTR_PHASE);
+	CMM_STORE_SHARED(urcu_domain->gp.ctr,
+			urcu_domain->gp.ctr ^ RCU_GP_CTR_PHASE);
 
 	/*
 	 * Must commit qparity update to memory before waiting for other parity
@@ -314,12 +326,12 @@ void synchronize_rcu(void)
 	 * wait_for_readers() can release and grab again rcu_registry_lock
 	 * interally.
 	 */
-	wait_for_readers(&cur_snap_readers, NULL, &qsreaders);
+	wait_for_readers(urcu_domain, &cur_snap_readers, NULL, &qsreaders);
 
 	/*
 	 * Put quiescent reader list back into registry.
 	 */
-	cds_list_splice(&qsreaders, &registry);
+	cds_list_splice(&qsreaders, &urcu_domain->registry);
 
 	/*
 	 * Finish waiting for reader threads before letting the old ptr being
@@ -327,15 +339,38 @@ void synchronize_rcu(void)
 	 */
 	smp_mb_master();
 out:
-	mutex_unlock(&rcu_registry_lock);
-	mutex_unlock(&rcu_gp_lock);
+	mutex_unlock(&urcu_domain->registry_lock);
+	mutex_unlock(&urcu_domain->gp_lock);
 	ret = pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
 	assert(!ret);
+}
+
+void synchronize_rcu(void)
+{
+	synchronize_srcu(urcu_bp_main_domain);
 }
 
 /*
  * library wrappers to be used by non-LGPL compatible source code.
  */
+
+void srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+	_srcu_read_lock(urcu_domain, reader_tls);
+}
+
+void srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+	_srcu_read_unlock(urcu_domain, reader_tls);
+}
+
+int srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
+{
+	return _srcu_read_ongoing(urcu_domain, reader_tls);
+}
 
 void rcu_read_lock(void)
 {
@@ -370,7 +405,7 @@ void expand_arena(struct registry_arena *arena)
 	if (cds_list_empty(&arena->chunk_list)) {
 		assert(ARENA_INIT_ALLOC >=
 			sizeof(struct registry_chunk)
-			+ sizeof(struct rcu_reader));
+			+ sizeof(struct rcu_reader_reg));
 		new_chunk_len = ARENA_INIT_ALLOC;
 		new_chunk = mmap(NULL, new_chunk_len,
 			PROT_READ | PROT_WRITE,
@@ -419,20 +454,20 @@ void expand_arena(struct registry_arena *arena)
 }
 
 static
-struct rcu_reader *arena_alloc(struct registry_arena *arena)
+struct rcu_reader_reg *arena_alloc(struct registry_arena *arena)
 {
 	struct registry_chunk *chunk;
-	struct rcu_reader *rcu_reader_reg;
+	struct rcu_reader_reg *rcu_reader_reg;
 	int expand_done = 0;	/* Only allow to expand once per alloc */
-	size_t len = sizeof(struct rcu_reader);
+	size_t len = sizeof(struct rcu_reader_reg);
 
 retry:
 	cds_list_for_each_entry(chunk, &arena->chunk_list, node) {
 		if (chunk->data_len - chunk->used < len)
 			continue;
 		/* Find spot */
-		for (rcu_reader_reg = (struct rcu_reader *) &chunk->data[0];
-				rcu_reader_reg < (struct rcu_reader *) &chunk->data[chunk->data_len];
+		for (rcu_reader_reg = (struct rcu_reader_reg *) &chunk->data[0];
+				rcu_reader_reg < (struct rcu_reader_reg *) &chunk->data[chunk->data_len];
 				rcu_reader_reg++) {
 			if (!rcu_reader_reg->alloc) {
 				rcu_reader_reg->alloc = 1;
@@ -453,50 +488,55 @@ retry:
 
 /* Called with signals off and mutex locked */
 static
-void add_thread(void)
+void add_thread(struct urcu_domain *urcu_domain, struct rcu_reader *tls)
 {
-	struct rcu_reader *rcu_reader_reg;
+	struct rcu_reader_reg *rcu_reader_reg;
 	int ret;
 
-	rcu_reader_reg = arena_alloc(&registry_arena);
+	rcu_reader_reg = arena_alloc(&urcu_domain->registry_arena);
 	if (!rcu_reader_reg)
 		abort();
-	ret = pthread_setspecific(urcu_bp_key, rcu_reader_reg);
+	ret = pthread_setspecific(urcu_domain->bp_key, rcu_reader_reg);
 	if (ret)
 		abort();
 
 	/* Add to registry */
 	rcu_reader_reg->tid = pthread_self();
 	assert(rcu_reader_reg->ctr == 0);
-	cds_list_add(&rcu_reader_reg->node, &registry);
+	cds_list_add(&rcu_reader_reg->node, &urcu_domain->registry);
+	rcu_reader_reg->domain = urcu_domain;
+	rcu_reader_reg->gp = &urcu_domain->gp;
+	rcu_reader_reg->tlsptr = tls;
 	/*
 	 * Reader threads are pointing to the reader registry. This is
 	 * why its memory should never be relocated.
 	 */
-	URCU_TLS(rcu_reader) = rcu_reader_reg;
+	tls->readerp = rcu_reader_reg;
 }
 
 /* Called with mutex locked */
 static
 void cleanup_thread(struct registry_chunk *chunk,
-		struct rcu_reader *rcu_reader_reg)
+		struct rcu_reader_reg *rcu_reader_reg)
 {
 	rcu_reader_reg->ctr = 0;
 	cds_list_del(&rcu_reader_reg->node);
 	rcu_reader_reg->tid = 0;
 	rcu_reader_reg->alloc = 0;
-	chunk->used -= sizeof(struct rcu_reader);
+	chunk->used -= sizeof(struct rcu_reader_reg);
 }
 
 static
-struct registry_chunk *find_chunk(struct rcu_reader *rcu_reader_reg)
+struct registry_chunk *find_chunk(struct urcu_domain *urcu_domain,
+		struct rcu_reader_reg *rcu_reader_reg)
 {
 	struct registry_chunk *chunk;
 
-	cds_list_for_each_entry(chunk, &registry_arena.chunk_list, node) {
-		if (rcu_reader_reg < (struct rcu_reader *) &chunk->data[0])
+	cds_list_for_each_entry(chunk,
+			&urcu_domain->registry_arena.chunk_list, node) {
+		if (rcu_reader_reg < (struct rcu_reader_reg *) &chunk->data[0])
 			continue;
-		if (rcu_reader_reg >= (struct rcu_reader *) &chunk->data[chunk->data_len])
+		if (rcu_reader_reg >= (struct rcu_reader_reg *) &chunk->data[chunk->data_len])
 			continue;
 		return chunk;
 	}
@@ -505,14 +545,18 @@ struct registry_chunk *find_chunk(struct rcu_reader *rcu_reader_reg)
 
 /* Called with signals off and mutex locked */
 static
-void remove_thread(struct rcu_reader *rcu_reader_reg)
+void remove_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader_reg *rcu_reader_reg)
 {
-	cleanup_thread(find_chunk(rcu_reader_reg), rcu_reader_reg);
-	URCU_TLS(rcu_reader) = NULL;
+	cleanup_thread(find_chunk(urcu_domain, rcu_reader_reg),
+			rcu_reader_reg);
+	assert(rcu_reader_reg->tlsptr != NULL);
+	rcu_reader_reg->tlsptr->readerp = NULL;
+	rcu_reader_reg->tlsptr = NULL;
 }
 
 /* Disable signals, take mutex, add to registry */
-void rcu_bp_register(void)
+void srcu_bp_register(struct urcu_domain *urcu_domain, struct rcu_reader *tls)
 {
 	sigset_t newmask, oldmask;
 	int ret;
@@ -528,17 +572,17 @@ void rcu_bp_register(void)
 	 * Check if a signal concurrently registered our thread since
 	 * the check in rcu_read_lock().
 	 */
-	if (URCU_TLS(rcu_reader))
+	if (tls->readerp)
 		goto end;
 
 	/*
-	 * Take care of early registration before urcu_bp constructor.
+	 * Take care of domain registration.
 	 */
-	rcu_bp_init();
+	srcu_bp_init(urcu_domain);
 
-	mutex_lock(&rcu_registry_lock);
-	add_thread();
-	mutex_unlock(&rcu_registry_lock);
+	mutex_lock(&urcu_domain->registry_lock);
+	add_thread(urcu_domain, tls);
+	mutex_unlock(&urcu_domain->registry_lock);
 end:
 	ret = pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
 	if (ret)
@@ -547,8 +591,9 @@ end:
 
 /* Disable signals, take mutex, remove from registry */
 static
-void rcu_bp_unregister(struct rcu_reader *rcu_reader_reg)
+void srcu_bp_unregister(struct rcu_reader_reg *rcu_reader_reg)
 {
+	struct urcu_domain *urcu_domain = rcu_reader_reg->domain;
 	sigset_t newmask, oldmask;
 	int ret;
 
@@ -559,13 +604,13 @@ void rcu_bp_unregister(struct rcu_reader *rcu_reader_reg)
 	if (ret)
 		abort();
 
-	mutex_lock(&rcu_registry_lock);
-	remove_thread(rcu_reader_reg);
-	mutex_unlock(&rcu_registry_lock);
+	mutex_lock(&urcu_domain->registry_lock);
+	remove_thread(urcu_domain, rcu_reader_reg);
+	mutex_unlock(&urcu_domain->registry_lock);
 	ret = pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
 	if (ret)
 		abort();
-	rcu_bp_exit();
+	srcu_bp_exit(urcu_domain);
 }
 
 /*
@@ -573,50 +618,62 @@ void rcu_bp_unregister(struct rcu_reader *rcu_reader_reg)
  * destroyed so garbage collection can take care of it.
  */
 static
-void urcu_bp_thread_exit_notifier(void *rcu_key)
+void srcu_bp_thread_exit_notifier(void *rcu_key)
 {
-	rcu_bp_unregister(rcu_key);
+	srcu_bp_unregister(rcu_key);
 }
 
 static
-void rcu_bp_init(void)
+void srcu_bp_init(struct urcu_domain *urcu_domain)
 {
-	mutex_lock(&init_lock);
-	if (!rcu_bp_refcount++) {
+	mutex_lock(&urcu_domain->init_lock);
+	if (!urcu_domain->bp_refcount++) {
 		int ret;
 
-		ret = pthread_key_create(&urcu_bp_key,
-				urcu_bp_thread_exit_notifier);
+		ret = pthread_key_create(&urcu_domain->bp_key,
+				srcu_bp_thread_exit_notifier);
 		if (ret)
 			abort();
 		ret = membarrier(MEMBARRIER_CMD_QUERY, 0);
 		if (ret >= 0 && (ret & MEMBARRIER_CMD_SHARED)) {
 			urcu_bp_has_sys_membarrier = 1;
 		}
-		initialized = 1;
+		urcu_domain->initialized = 1;
 	}
-	mutex_unlock(&init_lock);
+	mutex_unlock(&urcu_domain->init_lock);
+}
+
+static
+void rcu_bp_init(void)
+{
+	srcu_bp_init(urcu_bp_main_domain);
+}
+
+static
+void srcu_bp_exit(struct urcu_domain *urcu_domain)
+{
+	mutex_lock(&urcu_domain->init_lock);
+	if (!--urcu_domain->bp_refcount) {
+		struct registry_chunk *chunk, *tmp;
+		int ret;
+
+		cds_list_for_each_entry_safe(chunk, tmp,
+				&urcu_domain->registry_arena.chunk_list, node) {
+			munmap(chunk, chunk->data_len
+					+ sizeof(struct registry_chunk));
+		}
+		CDS_INIT_LIST_HEAD(&urcu_domain->registry_arena.chunk_list);
+		ret = pthread_key_delete(urcu_domain->bp_key);
+		if (ret)
+			abort();
+	}
+	mutex_unlock(&urcu_domain->init_lock);
 }
 
 static
 void rcu_bp_exit(void)
 {
-	mutex_lock(&init_lock);
-	if (!--rcu_bp_refcount) {
-		struct registry_chunk *chunk, *tmp;
-		int ret;
-
-		cds_list_for_each_entry_safe(chunk, tmp,
-				&registry_arena.chunk_list, node) {
-			munmap(chunk, chunk->data_len
-					+ sizeof(struct registry_chunk));
-		}
-		CDS_INIT_LIST_HEAD(&registry_arena.chunk_list);
-		ret = pthread_key_delete(urcu_bp_key);
-		if (ret)
-			abort();
-	}
-	mutex_unlock(&init_lock);
+	srcu_bp_exit(urcu_bp_main_domain);
 }
 
 /*
@@ -625,7 +682,7 @@ void rcu_bp_exit(void)
  * any of those locks held. This ensures that the registry and data
  * protected by rcu_gp_lock are in a coherent state in the child.
  */
-void rcu_bp_before_fork(void)
+void srcu_bp_before_fork(struct urcu_domain *urcu_domain)
 {
 	sigset_t newmask, oldmask;
 	int ret;
@@ -634,21 +691,31 @@ void rcu_bp_before_fork(void)
 	assert(!ret);
 	ret = pthread_sigmask(SIG_BLOCK, &newmask, &oldmask);
 	assert(!ret);
-	mutex_lock(&rcu_gp_lock);
-	mutex_lock(&rcu_registry_lock);
-	saved_fork_signal_mask = oldmask;
+	mutex_lock(&urcu_domain->gp_lock);
+	mutex_lock(&urcu_domain->registry_lock);
+	urcu_domain->saved_fork_signal_mask = oldmask;
 }
 
-void rcu_bp_after_fork_parent(void)
+void rcu_bp_before_fork(void)
+{
+	srcu_bp_before_fork(urcu_bp_main_domain);
+}
+
+void srcu_bp_after_fork_parent(struct urcu_domain *urcu_domain)
 {
 	sigset_t oldmask;
 	int ret;
 
-	oldmask = saved_fork_signal_mask;
-	mutex_unlock(&rcu_registry_lock);
-	mutex_unlock(&rcu_gp_lock);
+	oldmask = urcu_domain->saved_fork_signal_mask;
+	mutex_unlock(&urcu_domain->registry_lock);
+	mutex_unlock(&urcu_domain->gp_lock);
 	ret = pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
 	assert(!ret);
+}
+
+void rcu_bp_after_fork_parent(void)
+{
+	srcu_bp_after_fork_parent(urcu_bp_main_domain);
 }
 
 /*
@@ -656,14 +723,15 @@ void rcu_bp_after_fork_parent(void)
  * fork behavior. Called with rcu_gp_lock and rcu_registry_lock held.
  */
 static
-void urcu_bp_prune_registry(void)
+void srcu_bp_prune_registry(struct urcu_domain *urcu_domain)
 {
 	struct registry_chunk *chunk;
-	struct rcu_reader *rcu_reader_reg;
+	struct rcu_reader_reg *rcu_reader_reg;
+	struct registry_arena *arena = &urcu_domain->registry_arena;
 
-	cds_list_for_each_entry(chunk, &registry_arena.chunk_list, node) {
-		for (rcu_reader_reg = (struct rcu_reader *) &chunk->data[0];
-				rcu_reader_reg < (struct rcu_reader *) &chunk->data[chunk->data_len];
+	cds_list_for_each_entry(chunk, &arena->chunk_list, node) {
+		for (rcu_reader_reg = (struct rcu_reader_reg *) &chunk->data[0];
+				rcu_reader_reg < (struct rcu_reader_reg *) &chunk->data[chunk->data_len];
 				rcu_reader_reg++) {
 			if (!rcu_reader_reg->alloc)
 				continue;
@@ -674,17 +742,54 @@ void urcu_bp_prune_registry(void)
 	}
 }
 
-void rcu_bp_after_fork_child(void)
+void srcu_bp_after_fork_child(struct urcu_domain *urcu_domain)
 {
 	sigset_t oldmask;
 	int ret;
 
-	urcu_bp_prune_registry();
-	oldmask = saved_fork_signal_mask;
-	mutex_unlock(&rcu_registry_lock);
-	mutex_unlock(&rcu_gp_lock);
+	srcu_bp_prune_registry(urcu_domain);
+	oldmask = urcu_domain->saved_fork_signal_mask;
+	mutex_unlock(&urcu_domain->registry_lock);
+	mutex_unlock(&urcu_domain->gp_lock);
 	ret = pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
 	assert(!ret);
+}
+
+struct urcu_domain *urcu_create_domain(void)
+{
+	struct urcu_domain *urcu_domain;
+
+	urcu_domain = calloc(1, sizeof(*urcu_domain));
+	if (!urcu_domain)
+		return NULL;
+	if (pthread_mutex_init(&urcu_domain->gp_lock, NULL))
+		abort();
+	if (pthread_mutex_init(&urcu_domain->registry_lock, NULL))
+		abort();
+	if (pthread_mutex_init(&urcu_domain->init_lock, NULL))
+		abort();
+	CDS_INIT_LIST_HEAD(&urcu_domain->registry);
+	urcu_domain->gp.ctr = RCU_GP_COUNT;
+	CDS_INIT_LIST_HEAD(&urcu_domain->registry_arena.chunk_list);
+	return urcu_domain;
+}
+
+void urcu_destroy_domain(struct urcu_domain *urcu_domain)
+{
+	if (!cds_list_empty(&urcu_domain->registry))
+		abort();
+	if (pthread_mutex_destroy(&urcu_domain->init_lock))
+		abort();
+	if (pthread_mutex_destroy(&urcu_domain->gp_lock))
+		abort();
+	if (pthread_mutex_destroy(&urcu_domain->registry_lock))
+		abort();
+	free(urcu_domain);
+}
+
+void rcu_bp_after_fork_child(void)
+{
+	srcu_bp_after_fork_child(urcu_bp_main_domain);
 }
 
 void *rcu_dereference_sym_bp(void *p)

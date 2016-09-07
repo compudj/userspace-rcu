@@ -34,6 +34,15 @@
 
 /* Mapping macros to allow multiple flavors in a single binary. */
 
+#define srcu_read_lock			srcu_read_lock_bp
+#define _srcu_read_lock			_srcu_read_lock_bp
+#define srcu_read_unlock		srcu_read_unlock_bp
+#define _srcu_read_unlock		_srcu_read_unlock_bp
+#define srcu_read_ongoing		srcu_read_ongoing_bp
+#define _srcu_read_ongoing		_srcu_read_ongoing_bp
+#define srcu_register_thread		srcu_register_thread_bp
+#define srcu_unregister_thread		srcu_unregister_thread_bp
+
 #define rcu_read_lock			rcu_read_lock_bp
 #define _rcu_read_lock			_rcu_read_lock_bp
 #define rcu_read_unlock			rcu_read_unlock_bp
@@ -42,11 +51,14 @@
 #define _rcu_read_ongoing		_rcu_read_ongoing_bp
 #define rcu_register_thread		rcu_register_thread_bp
 #define rcu_unregister_thread		rcu_unregister_thread_bp
+
 #define rcu_init			rcu_init_bp
 #define rcu_exit			rcu_exit_bp
+#define synchronize_srcu		synchronize_srcu_bp
 #define synchronize_rcu			synchronize_rcu_bp
 #define rcu_reader			rcu_reader_bp
 #define rcu_gp				rcu_gp_bp
+#define urcu_domain			urcu_domain_bp
 
 #define get_cpu_call_rcu_data		get_cpu_call_rcu_data_bp
 #define get_call_rcu_thread		get_call_rcu_thread_bp
@@ -71,6 +83,9 @@
 #define rcu_defer_barrier		rcu_defer_barrier_bp
 #define rcu_defer_barrier_thread	rcu_defer_barrier_thread_bp
 #define rcu_defer_exit			rcu_defer_exit_bp
+
+#define urcu_create_domain		urcu_create_domain_bp
+#define urcu_destroy_domain		urcu_destroy_domain_bp
 
 #define rcu_flavor			rcu_flavor_bp
 

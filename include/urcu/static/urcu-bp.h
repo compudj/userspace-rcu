@@ -53,6 +53,8 @@
 extern "C" {
 #endif
 
+struct urcu_domain;
+
 enum rcu_state {
 	RCU_READER_ACTIVE_CURRENT,
 	RCU_READER_ACTIVE_OLD,
@@ -68,11 +70,6 @@ enum rcu_state {
 #define RCU_GP_CTR_PHASE		(1UL << (sizeof(long) << 2))
 #define RCU_GP_CTR_NEST_MASK	(RCU_GP_CTR_PHASE - 1)
 
-/*
- * Used internally by _rcu_read_lock.
- */
-extern void rcu_bp_register(void);
-
 struct rcu_gp {
 	/*
 	 * Global grace period counter.
@@ -84,25 +81,41 @@ struct rcu_gp {
 	unsigned long ctr;
 } __attribute__((aligned(CAA_CACHE_LINE_SIZE)));
 
-extern struct rcu_gp rcu_gp;
-
-struct rcu_reader {
+struct rcu_reader_reg {
 	/* Data used by both reader and synchronize_rcu() */
 	unsigned long ctr;
 	/* Data used for registry */
 	struct cds_list_head node __attribute__((aligned(CAA_CACHE_LINE_SIZE)));
 	pthread_t tid;
+	struct rcu_gp *gp;
+	struct urcu_domain *domain;
+	struct rcu_reader *tlsptr;
 	int alloc;	/* registry entry allocated */
 };
+
+#ifndef URCU_BP_READER_STRUCT
+#define URCU_BP_READER_STRUCT
+struct rcu_reader {
+	struct rcu_reader_reg *readerp;
+};
+#endif
 
 /*
  * Bulletproof version keeps a pointer to a registry not part of the TLS.
  * Adds a pointer dereference on the read-side, but won't require to unregister
  * the reader thread.
  */
-extern DECLARE_URCU_TLS(struct rcu_reader *, rcu_reader);
+extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 
 extern int urcu_bp_has_sys_membarrier;
+
+extern struct urcu_domain *urcu_bp_main_domain;
+
+/*
+ * Used internally by _rcu_read_lock.
+ */
+extern void srcu_bp_register(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls_reader);
 
 static inline void urcu_bp_smp_mb_slave(void)
 {
@@ -112,20 +125,21 @@ static inline void urcu_bp_smp_mb_slave(void)
 		cmm_smp_mb();
 }
 
-static inline enum rcu_state rcu_reader_state(unsigned long *ctr)
+static inline enum rcu_state rcu_reader_state(struct rcu_gp *gp,
+		struct rcu_reader_reg *tls)
 {
 	unsigned long v;
 
-	if (ctr == NULL)
+	if (tls == NULL)
 		return RCU_READER_INACTIVE;
 	/*
 	 * Make sure both tests below are done on the same version of *value
 	 * to insure consistency.
 	 */
-	v = CMM_LOAD_SHARED(*ctr);
+	v = CMM_LOAD_SHARED(tls->ctr);
 	if (!(v & RCU_GP_CTR_NEST_MASK))
 		return RCU_READER_INACTIVE;
-	if (!((v ^ rcu_gp.ctr) & RCU_GP_CTR_PHASE))
+	if (!((v ^ gp->ctr) & RCU_GP_CTR_PHASE))
 		return RCU_READER_ACTIVE_CURRENT;
 	return RCU_READER_ACTIVE_OLD;
 }
@@ -137,13 +151,14 @@ static inline enum rcu_state rcu_reader_state(unsigned long *ctr)
  * or RCU_GP_CTR_PHASE.  The smp_mb_slave() ensures that the accesses in
  * _rcu_read_lock() happen before the subsequent read-side critical section.
  */
-static inline void _rcu_read_lock_update(unsigned long tmp)
+static inline void _srcu_read_lock_update(struct rcu_reader_reg *reg,
+		unsigned long tmp)
 {
 	if (caa_likely(!(tmp & RCU_GP_CTR_NEST_MASK))) {
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader)->ctr, _CMM_LOAD_SHARED(rcu_gp.ctr));
+		_CMM_STORE_SHARED(reg->ctr, _CMM_LOAD_SHARED(reg->gp->ctr));
 		urcu_bp_smp_mb_slave();
 	} else
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader)->ctr, tmp + RCU_GP_COUNT);
+		_CMM_STORE_SHARED(reg->ctr, tmp + RCU_GP_COUNT);
 }
 
 /*
@@ -156,16 +171,24 @@ static inline void _rcu_read_lock_update(unsigned long tmp)
  * intent is that this function meets the 10-line criterion in LGPL,
  * allowing this function to be invoked directly from non-LGPL code.
  */
-static inline void _rcu_read_lock(void)
+static inline void _srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	unsigned long tmp;
+	struct rcu_reader_reg *reg = tls->readerp;
 
-	if (caa_unlikely(!URCU_TLS(rcu_reader)))
-		rcu_bp_register(); /* If not yet registered. */
+	if (caa_unlikely(!reg))
+		srcu_bp_register(urcu_domain, tls); /* If not yet registered. */
+	reg = tls->readerp;
 	cmm_barrier();	/* Ensure the compiler does not reorder us with mutex */
-	tmp = URCU_TLS(rcu_reader)->ctr;
+	tmp = reg->ctr;
 	urcu_assert((tmp & RCU_GP_CTR_NEST_MASK) != RCU_GP_CTR_NEST_MASK);
-	_rcu_read_lock_update(tmp);
+	_srcu_read_lock_update(reg, tmp);
+}
+
+static inline void _rcu_read_lock(void)
+{
+	_srcu_read_lock(urcu_bp_main_domain, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -173,16 +196,23 @@ static inline void _rcu_read_lock(void)
  * 10 lines of code, and is intended to be usable by non-LGPL code, as
  * called out in LGPL.
  */
-static inline void _rcu_read_unlock(void)
+static inline void _srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	unsigned long tmp;
+	struct rcu_reader_reg *reg = tls->readerp;
 
-	tmp = URCU_TLS(rcu_reader)->ctr;
+	tmp = reg->ctr;
 	urcu_assert(tmp & RCU_GP_CTR_NEST_MASK);
 	/* Finish using rcu before decrementing the pointer. */
 	urcu_bp_smp_mb_slave();
-	_CMM_STORE_SHARED(URCU_TLS(rcu_reader)->ctr, tmp - RCU_GP_COUNT);
+	_CMM_STORE_SHARED(reg->ctr, tmp - RCU_GP_COUNT);
 	cmm_barrier();	/* Ensure the compiler does not reorder us with mutex */
+}
+
+static inline void _rcu_read_unlock(void)
+{
+	_srcu_read_unlock(urcu_bp_main_domain, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -192,11 +222,20 @@ static inline void _rcu_read_unlock(void)
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
+static inline int _srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
+{
+	struct rcu_reader_reg *reg = tls->readerp;
+
+	if (caa_unlikely(!reg))
+		srcu_bp_register(urcu_domain, tls); /* If not yet registered. */
+	reg = tls->readerp;
+	return reg->ctr & RCU_GP_CTR_NEST_MASK;
+}
+
 static inline int _rcu_read_ongoing(void)
 {
-	if (caa_unlikely(!URCU_TLS(rcu_reader)))
-		rcu_bp_register(); /* If not yet registered. */
-	return URCU_TLS(rcu_reader)->ctr & RCU_GP_CTR_NEST_MASK;
+	return _srcu_read_ongoing(urcu_bp_main_domain, &URCU_TLS(rcu_reader));
 }
 
 #ifdef __cplusplus
