@@ -118,6 +118,12 @@ extern void synchronize_srcu(struct urcu_domain *urcu_domain);
 
 extern void synchronize_rcu(void);
 
+extern struct urcu_domain *urcu_create_domain(void);
+extern void urcu_destroy_domain(struct urcu_domain *urcu_domain);
+
+extern struct rcu_reader *urcu_create_reader_tls(void);
+extern void urcu_destroy_reader_tls(struct rcu_reader *reader_tls);
+
 /*
  * Reader thread registration.
  */

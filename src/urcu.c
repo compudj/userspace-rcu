@@ -518,6 +518,43 @@ int rcu_read_ongoing(void)
 	return _rcu_read_ongoing();
 }
 
+struct urcu_domain *urcu_create_domain(void)
+{
+	struct urcu_domain *urcu_domain;
+
+	urcu_domain = calloc(1, sizeof(*urcu_domain));
+	if (!urcu_domain)
+		return NULL;
+	if (pthread_mutex_init(&urcu_domain->gp_lock, NULL))
+		abort();
+	if (pthread_mutex_init(&urcu_domain->registry_lock, NULL))
+		abort();
+	CDS_INIT_LIST_HEAD(&urcu_domain->registry);
+	urcu_domain->gp.ctr = RCU_GP_COUNT;
+	return urcu_domain;
+}
+
+void urcu_destroy_domain(struct urcu_domain *urcu_domain)
+{
+	if (!cds_list_empty(&urcu_domain->registry))
+		abort();
+	if (pthread_mutex_destroy(&urcu_domain->gp_lock))
+		abort();
+	if (pthread_mutex_destroy(&urcu_domain->registry_lock))
+		abort();
+	free(urcu_domain);
+}
+
+struct rcu_reader *urcu_create_reader_tls(void)
+{
+	return calloc(1, sizeof(struct rcu_reader));
+}
+
+void urcu_destroy_reader_tls(struct rcu_reader *reader_tls)
+{
+	free(reader_tls);
+}
+
 void srcu_register_thread(struct urcu_domain *urcu_domain,
 		struct rcu_reader *reader_tls)
 {

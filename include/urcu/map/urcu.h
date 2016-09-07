@@ -89,6 +89,11 @@
 #define rcu_defer_barrier_thread	rcu_defer_barrier_thread_memb
 #define rcu_defer_exit			rcu_defer_exit_memb
 
+#define urcu_create_domain		urcu_create_domain_memb
+#define urcu_destroy_domain		urcu_destroy_domain_memb
+#define urcu_create_reader_tls		urcu_create_reader_tls_memb
+#define urcu_destroy_reader_tls		urcu_destroy_reader_tls_memb
+
 #define rcu_flavor			rcu_flavor_memb
 
 /* Specific to MEMBARRIER flavor */
@@ -145,6 +150,11 @@
 #define rcu_defer_barrier_thread	rcu_defer_barrier_thread_sig
 #define rcu_defer_exit			rcu_defer_exit_sig
 
+#define urcu_create_domain		urcu_create_domain_sig
+#define urcu_destroy_domain		urcu_destroy_domain_sig
+#define urcu_create_reader_tls		urcu_create_reader_tls_sig
+#define urcu_destroy_reader_tls		urcu_destroy_reader_tls_sig
+
 #define rcu_flavor			rcu_flavor_sig
 
 #elif defined(RCU_MB)
@@ -197,6 +207,11 @@
 #define rcu_defer_barrier		rcu_defer_barrier_mb
 #define rcu_defer_barrier_thread	rcu_defer_barrier_thread_mb
 #define rcu_defer_exit			rcu_defer_exit_mb
+
+#define urcu_create_domain		urcu_create_domain_mb
+#define urcu_destroy_domain		urcu_destroy_domain_mb
+#define urcu_create_reader_tls		urcu_create_reader_tls_mb
+#define urcu_destroy_reader_tls		urcu_destroy_reader_tls_mb
 
 #define rcu_flavor			rcu_flavor_mb
 
