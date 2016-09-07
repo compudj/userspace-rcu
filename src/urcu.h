@@ -54,6 +54,9 @@ extern "C" {
  * rcu_unregister_thread_mb() should be called before the thread exits.
  */
 
+struct urcu_domain;
+struct rcu_reader;
+
 #ifdef _LGPL_SOURCE
 
 #include <urcu/static/urcu.h>
@@ -72,14 +75,23 @@ extern "C" {
  * READ-SIDE CRITICAL SECTION.
  */
 #ifdef RCU_MEMBARRIER
+#define srcu_read_lock_memb		_srcu_read_lock
+#define srcu_read_unlock_memb		_srcu_read_unlock
+#define srcu_read_ongoing_memb		_srcu_read_ongoing
 #define rcu_read_lock_memb		_rcu_read_lock
 #define rcu_read_unlock_memb		_rcu_read_unlock
 #define rcu_read_ongoing_memb		_rcu_read_ongoing
 #elif defined(RCU_SIGNAL)
+#define srcu_read_lock_sig		_srcu_read_lock
+#define srcu_read_unlock_sig		_srcu_read_unlock
+#define srcu_read_ongoing_sig		_srcu_read_ongoing
 #define rcu_read_lock_sig		_rcu_read_lock
 #define rcu_read_unlock_sig		_rcu_read_unlock
 #define rcu_read_ongoing_sig		_rcu_read_ongoing
 #elif defined(RCU_MB)
+#define srcu_read_lock_mb		_srcu_read_lock
+#define srcu_read_unlock_mb		_srcu_read_unlock
+#define srcu_read_ongoing_mb		_srcu_read_ongoing
 #define rcu_read_lock_mb		_rcu_read_lock
 #define rcu_read_unlock_mb		_rcu_read_unlock
 #define rcu_read_ongoing_mb		_rcu_read_ongoing
@@ -92,17 +104,28 @@ extern "C" {
  * See LGPL-only urcu/static/urcu-pointer.h for documentation.
  */
 
+extern void srcu_read_lock(struct rcu_reader *reader_tls);
+extern void srcu_read_unlock(struct rcu_reader *reader_tls);
+extern int srcu_read_ongoing(struct rcu_reader *reader_tls);
+
 extern void rcu_read_lock(void);
 extern void rcu_read_unlock(void);
 extern int rcu_read_ongoing(void);
 
 #endif /* !_LGPL_SOURCE */
 
+extern void synchronize_srcu(struct urcu_domain *urcu_domain);
+
 extern void synchronize_rcu(void);
 
 /*
  * Reader thread registration.
  */
+extern void srcu_register_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern void srcu_unregister_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+
 extern void rcu_register_thread(void);
 extern void rcu_unregister_thread(void);
 
@@ -114,6 +137,18 @@ extern void rcu_init(void);
 /*
  * Q.S. reporting are no-ops for these URCU flavors.
  */
+static inline void srcu_quiescent_state(struct rcu_reader *reader_tls)
+{
+}
+
+static inline void srcu_thread_offline(struct rcu_reader *reader_tls)
+{
+}
+
+static inline void srcu_thread_online(struct rcu_reader *reader_tls)
+{
+}
+
 static inline void rcu_quiescent_state(void)
 {
 }

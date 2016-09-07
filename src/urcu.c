@@ -112,16 +112,14 @@ struct urcu_domain {
 	 */
 	pthread_mutex_t registry_lock;
 	struct cds_list_head registry;
-	struct rcu_gp *gp;
+	struct rcu_gp gp;
 };
-
-struct rcu_gp rcu_gp = { .ctr = RCU_GP_COUNT };
 
 static struct urcu_domain main_domain = {
 	.gp_lock = PTHREAD_MUTEX_INITIALIZER,
 	.registry_lock = PTHREAD_MUTEX_INITIALIZER,
 	.registry = CDS_LIST_HEAD_INIT(main_domain.registry),
-	.gp = &rcu_gp,
+	.gp = { .ctr = RCU_GP_COUNT },
 };
 
 /*
@@ -250,9 +248,9 @@ static void wait_gp(struct urcu_domain *urcu_domain)
 	smp_mb_master(urcu_domain);
 	/* Temporarily unlock the registry lock. */
 	mutex_unlock(&urcu_domain->registry_lock);
-	if (uatomic_read(&urcu_domain->gp->futex) != -1)
+	if (uatomic_read(&urcu_domain->gp.futex) != -1)
 		goto end;
-	while (futex_async(&urcu_domain->gp->futex, FUTEX_WAIT, -1,
+	while (futex_async(&urcu_domain->gp.futex, FUTEX_WAIT, -1,
 			NULL, NULL, 0)) {
 		switch (errno) {
 		case EWOULDBLOCK:
@@ -284,6 +282,7 @@ static void wait_for_readers(struct urcu_domain *urcu_domain,
 {
 	unsigned int wait_loops = 0;
 	struct rcu_reader *index, *tmp;
+	struct rcu_gp *gp = &urcu_domain->gp;
 #ifdef HAS_INCOHERENT_CACHES
 	unsigned int wait_gp_loops = 0;
 #endif /* HAS_INCOHERENT_CACHES */
@@ -297,13 +296,13 @@ static void wait_for_readers(struct urcu_domain *urcu_domain,
 		if (wait_loops < RCU_QS_ACTIVE_ATTEMPTS)
 			wait_loops++;
 		if (wait_loops >= RCU_QS_ACTIVE_ATTEMPTS) {
-			uatomic_dec(&urcu_domain->gp->futex);
+			uatomic_dec(&urcu_domain->gp.futex);
 			/* Write futex before read reader_gp */
 			smp_mb_master(urcu_domain);
 		}
 
 		cds_list_for_each_entry_safe(index, tmp, input_readers, node) {
-			switch (rcu_reader_state(&index->ctr)) {
+			switch (rcu_reader_state(gp, index)) {
 			case RCU_READER_ACTIVE_CURRENT:
 				if (cur_snap_readers) {
 					cds_list_move(&index->node,
@@ -330,7 +329,7 @@ static void wait_for_readers(struct urcu_domain *urcu_domain,
 			if (wait_loops >= RCU_QS_ACTIVE_ATTEMPTS) {
 				/* Read reader_gp before write futex */
 				smp_mb_master(urcu_domain);
-				uatomic_set(&urcu_domain->gp->futex, 0);
+				uatomic_set(&urcu_domain->gp.futex, 0);
 			}
 			break;
 		} else {
@@ -358,7 +357,7 @@ static void wait_for_readers(struct urcu_domain *urcu_domain,
 			if (wait_loops >= RCU_QS_ACTIVE_ATTEMPTS) {
 				/* Read reader_gp before write futex */
 				smp_mb_master(urcu_domain);
-				uatomic_set(&urcu_domain->gp->futex, 0);
+				uatomic_set(&urcu_domain->gp.futex, 0);
 			}
 			break;
 		} else {
@@ -456,8 +455,8 @@ void synchronize_srcu(struct urcu_domain *urcu_domain)
 	cmm_smp_mb();
 
 	/* Switch parity: 0 -> 1, 1 -> 0 */
-	CMM_STORE_SHARED(urcu_domain->gp->ctr,
-			urcu_domain->gp->ctr ^ RCU_GP_CTR_PHASE);
+	CMM_STORE_SHARED(urcu_domain->gp.ctr,
+			urcu_domain->gp.ctr ^ RCU_GP_CTR_PHASE);
 
 	/*
 	 * Must commit gp.ctr update to memory before waiting for quiescent
@@ -514,6 +513,21 @@ void synchronize_rcu(void)
  * library wrappers to be used by non-LGPL compatible source code.
  */
 
+void srcu_read_lock(struct rcu_reader *reader_tls)
+{
+	_srcu_read_lock(reader_tls);
+}
+
+void srcu_read_unlock(struct rcu_reader *reader_tls)
+{
+	_srcu_read_unlock(reader_tls);
+}
+
+int srcu_read_ongoing(struct rcu_reader *reader_tls)
+{
+	return _srcu_read_ongoing(reader_tls);
+}
+
 void rcu_read_lock(void)
 {
 	_rcu_read_lock();
@@ -539,6 +553,7 @@ void srcu_register_thread(struct urcu_domain *urcu_domain,
 
 	mutex_lock(&urcu_domain->registry_lock);
 	assert(!reader_tls->registered);
+	reader_tls->gp = &urcu_domain->gp;
 	reader_tls->registered = 1;
 	rcu_init();	/* In case gcc does not support constructor attribute */
 	cds_list_add(&reader_tls->node, &urcu_domain->registry);
@@ -558,6 +573,7 @@ void srcu_unregister_thread(struct urcu_domain *urcu_domain,
 	reader_tls->registered = 0;
 	cds_list_del(&reader_tls->node);
 	reader_tls->need_mb = NULL;
+	reader_tls->gp = NULL;
 	mutex_unlock(&urcu_domain->registry_lock);
 }
 

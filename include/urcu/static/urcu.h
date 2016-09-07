@@ -145,6 +145,7 @@ struct rcu_reader {
 	/* Data used for registry */
 	struct cds_list_head node __attribute__((aligned(CAA_CACHE_LINE_SIZE)));
 	pthread_t tid;
+	struct rcu_gp *gp;
 	/* Reader registered flag, for internal checks. */
 	unsigned int registered:1;
 };
@@ -154,21 +155,22 @@ extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 /*
  * Wake-up waiting synchronize_rcu(). Called from many concurrent threads.
  */
-static inline void wake_up_gp(void)
+static inline void wake_up_gp(struct rcu_gp *gp)
 {
-	if (caa_unlikely(uatomic_read(&rcu_gp.futex) == -1)) {
-		uatomic_set(&rcu_gp.futex, 0);
+	if (caa_unlikely(uatomic_read(&gp->futex) == -1)) {
+		uatomic_set(&gp->futex, 0);
 		/*
 		 * Ignoring return value until we can make this function
 		 * return something (because urcu_die() is not publicly
 		 * exposed).
 		 */
-		(void) futex_async(&rcu_gp.futex, FUTEX_WAKE, 1,
+		(void) futex_async(&gp->futex, FUTEX_WAKE, 1,
 				NULL, NULL, 0);
 	}
 }
 
-static inline enum rcu_state rcu_reader_state(unsigned long *ctr)
+static inline enum rcu_state rcu_reader_state(struct rcu_gp *gp,
+		struct rcu_reader *tls)
 {
 	unsigned long v;
 
@@ -176,10 +178,10 @@ static inline enum rcu_state rcu_reader_state(unsigned long *ctr)
 	 * Make sure both tests below are done on the same version of *value
 	 * to insure consistency.
 	 */
-	v = CMM_LOAD_SHARED(*ctr);
+	v = CMM_LOAD_SHARED(tls->ctr);
 	if (!(v & RCU_GP_CTR_NEST_MASK))
 		return RCU_READER_INACTIVE;
-	if (!((v ^ rcu_gp.ctr) & RCU_GP_CTR_PHASE))
+	if (!((v ^ gp->ctr) & RCU_GP_CTR_PHASE))
 		return RCU_READER_ACTIVE_CURRENT;
 	return RCU_READER_ACTIVE_OLD;
 }
@@ -191,13 +193,16 @@ static inline enum rcu_state rcu_reader_state(unsigned long *ctr)
  * or RCU_GP_CTR_PHASE.  The smp_mb_slave() ensures that the accesses in
  * _rcu_read_lock() happen before the subsequent read-side critical section.
  */
-static inline void _rcu_read_lock_update(unsigned long tmp)
+static inline void _srcu_read_lock_update(struct rcu_reader *tls,
+		unsigned long tmp)
 {
 	if (caa_likely(!(tmp & RCU_GP_CTR_NEST_MASK))) {
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, _CMM_LOAD_SHARED(rcu_gp.ctr));
+		struct rcu_gp *gp = tls->gp;
+
+		_CMM_STORE_SHARED(tls->ctr, _CMM_LOAD_SHARED(gp->ctr));
 		smp_mb_slave();
 	} else
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp + RCU_GP_COUNT);
+		_CMM_STORE_SHARED(tls->ctr, tmp + RCU_GP_COUNT);
 }
 
 /*
@@ -210,15 +215,20 @@ static inline void _rcu_read_lock_update(unsigned long tmp)
  * intent is that this function meets the 10-line criterion in LGPL,
  * allowing this function to be invoked directly from non-LGPL code.
  */
-static inline void _rcu_read_lock(void)
+static inline void _srcu_read_lock(struct rcu_reader *tls)
 {
 	unsigned long tmp;
 
-	urcu_assert(URCU_TLS(rcu_reader).registered);
+	urcu_assert(tls->registered);
 	cmm_barrier();
-	tmp = URCU_TLS(rcu_reader).ctr;
+	tmp = tls->ctr;
 	urcu_assert((tmp & RCU_GP_CTR_NEST_MASK) != RCU_GP_CTR_NEST_MASK);
-	_rcu_read_lock_update(tmp);
+	_srcu_read_lock_update(tls, tmp);
+}
+
+static inline void _rcu_read_lock(void)
+{
+	_srcu_read_lock(&URCU_TLS(rcu_reader));
 }
 
 /*
@@ -229,15 +239,16 @@ static inline void _rcu_read_lock(void)
  * The second smp_mb_slave() call ensures that we write to rcu_reader.ctr
  * before reading the update-side futex.
  */
-static inline void _rcu_read_unlock_update_and_wakeup(unsigned long tmp)
+static inline void _srcu_read_unlock_update_and_wakeup(struct rcu_reader *tls,
+		unsigned long tmp)
 {
 	if (caa_likely((tmp & RCU_GP_CTR_NEST_MASK) == RCU_GP_COUNT)) {
 		smp_mb_slave();
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp - RCU_GP_COUNT);
+		_CMM_STORE_SHARED(tls->ctr, tmp - RCU_GP_COUNT);
 		smp_mb_slave();
-		wake_up_gp();
+		wake_up_gp(tls->gp);
 	} else
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp - RCU_GP_COUNT);
+		_CMM_STORE_SHARED(tls->ctr, tmp - RCU_GP_COUNT);
 }
 
 /*
@@ -245,15 +256,20 @@ static inline void _rcu_read_unlock_update_and_wakeup(unsigned long tmp)
  * helper are smaller than 10 lines of code, and are intended to be
  * usable by non-LGPL code, as called out in LGPL.
  */
-static inline void _rcu_read_unlock(void)
+static inline void _srcu_read_unlock(struct rcu_reader *tls)
 {
 	unsigned long tmp;
 
-	urcu_assert(URCU_TLS(rcu_reader).registered);
-	tmp = URCU_TLS(rcu_reader).ctr;
+	urcu_assert(tls->registered);
+	tmp = tls->ctr;
 	urcu_assert(tmp & RCU_GP_CTR_NEST_MASK);
-	_rcu_read_unlock_update_and_wakeup(tmp);
+	_srcu_read_unlock_update_and_wakeup(tls, tmp);
 	cmm_barrier();	/* Ensure the compiler does not reorder us with mutex */
+}
+
+static inline void _rcu_read_unlock(void)
+{
+	_srcu_read_unlock(&URCU_TLS(rcu_reader));
 }
 
 /*
@@ -263,9 +279,14 @@ static inline void _rcu_read_unlock(void)
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
+static inline int _srcu_read_ongoing(struct rcu_reader *tls)
+{
+	return tls->ctr & RCU_GP_CTR_NEST_MASK;
+}
+
 static inline int _rcu_read_ongoing(void)
 {
-	return URCU_TLS(rcu_reader).ctr & RCU_GP_CTR_NEST_MASK;
+	return _srcu_read_ongoing(&URCU_TLS(rcu_reader));
 }
 
 #ifdef __cplusplus

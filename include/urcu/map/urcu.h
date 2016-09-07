@@ -40,6 +40,15 @@
 
 #ifdef RCU_MEMBARRIER
 
+#define srcu_read_lock			srcu_read_lock_memb
+#define _srcu_read_lock			_srcu_read_lock_memb
+#define srcu_read_unlock		srcu_read_unlock_memb
+#define _srcu_read_unlock		_srcu_read_unlock_memb
+#define srcu_read_ongoing		srcu_read_ongoing_memb
+#define _srcu_read_ongoing		_srcu_read_ongoing_memb
+#define srcu_register_thread		srcu_register_thread_memb
+#define srcu_unregister_thread		srcu_unregister_thread_memb
+
 #define rcu_read_lock			rcu_read_lock_memb
 #define _rcu_read_lock			_rcu_read_lock_memb
 #define rcu_read_unlock			rcu_read_unlock_memb
@@ -48,8 +57,10 @@
 #define _rcu_read_ongoing		_rcu_read_ongoing_memb
 #define rcu_register_thread		rcu_register_thread_memb
 #define rcu_unregister_thread		rcu_unregister_thread_memb
+
 #define rcu_init			rcu_init_memb
 #define rcu_exit			rcu_exit_memb
+#define synchronize_srcu		synchronize_srcu_memb
 #define synchronize_rcu			synchronize_rcu_memb
 #define rcu_reader			rcu_reader_memb
 #define rcu_gp				rcu_gp_memb
@@ -85,6 +96,15 @@
 
 #elif defined(RCU_SIGNAL)
 
+#define srcu_read_lock			srcu_read_lock_sig
+#define _srcu_read_lock			_srcu_read_lock_sig
+#define srcu_read_unlock		srcu_read_unlock_sig
+#define _srcu_read_unlock		_srcu_read_unlock_sig
+#define srcu_read_ongoing		srcu_read_ongoing_sig
+#define _srcu_read_ongoing		_srcu_read_ongoing_sig
+#define srcu_register_thread		srcu_register_thread_sig
+#define srcu_unregister_thread		srcu_unregister_thread_sig
+
 #define rcu_read_lock			rcu_read_lock_sig
 #define _rcu_read_lock			_rcu_read_lock_sig
 #define rcu_read_unlock			rcu_read_unlock_sig
@@ -93,8 +113,10 @@
 #define _rcu_read_ongoing		_rcu_read_ongoing_sig
 #define rcu_register_thread		rcu_register_thread_sig
 #define rcu_unregister_thread		rcu_unregister_thread_sig
+
 #define rcu_init			rcu_init_sig
 #define rcu_exit			rcu_exit_sig
+#define synchronize_srcu		synchronize_srcu_sig
 #define synchronize_rcu			synchronize_rcu_sig
 #define rcu_reader			rcu_reader_sig
 #define rcu_gp				rcu_gp_sig
@@ -127,6 +149,15 @@
 
 #elif defined(RCU_MB)
 
+#define srcu_read_lock			srcu_read_lock_mb
+#define _srcu_read_lock			_srcu_read_lock_mb
+#define srcu_read_unlock		srcu_read_unlock_mb
+#define _srcu_read_unlock		_srcu_read_unlock_mb
+#define srcu_read_ongoing		srcu_read_ongoing_mb
+#define _srcu_read_ongoing		_srcu_read_ongoing_mb
+#define srcu_register_thread		srcu_register_thread_mb
+#define srcu_unregister_thread		srcu_unregister_thread_mb
+
 #define rcu_read_lock			rcu_read_lock_mb
 #define _rcu_read_lock			_rcu_read_lock_mb
 #define rcu_read_unlock			rcu_read_unlock_mb
@@ -135,8 +166,10 @@
 #define _rcu_read_ongoing		_rcu_read_ongoing_mb
 #define rcu_register_thread		rcu_register_thread_mb
 #define rcu_unregister_thread		rcu_unregister_thread_mb
+
 #define rcu_init			rcu_init_mb
 #define rcu_exit			rcu_exit_mb
+#define synchronize_srcu		synchronize_srcu_mb
 #define synchronize_rcu			synchronize_rcu_mb
 #define rcu_reader			rcu_reader_mb
 #define rcu_gp				rcu_gp_mb
