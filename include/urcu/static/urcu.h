@@ -141,7 +141,7 @@ extern struct rcu_gp rcu_gp;
 struct rcu_reader {
 	/* Data used by both reader and synchronize_rcu() */
 	unsigned long ctr;
-	char need_mb;
+	char *need_mb;
 	/* Data used for registry */
 	struct cds_list_head node __attribute__((aligned(CAA_CACHE_LINE_SIZE)));
 	pthread_t tid;

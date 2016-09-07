@@ -130,6 +130,8 @@ static struct urcu_domain main_domain = {
  */
 DEFINE_URCU_TLS(struct rcu_reader, rcu_reader);
 
+static DEFINE_URCU_TLS(char, urcu_need_mb);
+
 /*
  * Queue keeping threads awaiting to wait for a grace period. Contains
  * struct gp_waiters_thread objects.
@@ -148,9 +150,9 @@ static void mutex_lock(pthread_mutex_t *mutex)
 	while ((ret = pthread_mutex_trylock(mutex)) != 0) {
 		if (ret != EBUSY && ret != EINTR)
 			urcu_die(ret);
-		if (CMM_LOAD_SHARED(URCU_TLS(rcu_reader).need_mb)) {
+		if (CMM_LOAD_SHARED(URCU_TLS(urcu_need_mb))) {
 			cmm_smp_mb();
-			_CMM_STORE_SHARED(URCU_TLS(rcu_reader).need_mb, 0);
+			_CMM_STORE_SHARED(URCU_TLS(urcu_need_mb), 0);
 			cmm_smp_mb();
 		}
 		(void) poll(NULL, 0, 10);
@@ -202,7 +204,7 @@ static void force_mb_all_readers(struct urcu_domain *urcu_domain)
 	 * cache flush is enforced.
 	 */
 	cds_list_for_each_entry(index, &urcu_domain->registry, node) {
-		CMM_STORE_SHARED(index->need_mb, 1);
+		CMM_STORE_SHARED(*index->need_mb, 1);
 		pthread_kill(index->tid, SIGRCU);
 	}
 	/*
@@ -219,7 +221,7 @@ static void force_mb_all_readers(struct urcu_domain *urcu_domain)
 	 * the Linux Test Project (LTP).
 	 */
 	cds_list_for_each_entry(index, &urcu_domain->registry, node) {
-		while (CMM_LOAD_SHARED(index->need_mb)) {
+		while (CMM_LOAD_SHARED(*index->need_mb)) {
 			pthread_kill(index->tid, SIGRCU);
 			(void) poll(NULL, 0, 1);
 		}
@@ -527,37 +529,41 @@ int rcu_read_ongoing(void)
 	return _rcu_read_ongoing();
 }
 
-void srcu_register_thread(struct urcu_domain *urcu_domain)
+void srcu_register_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
-	URCU_TLS(rcu_reader).tid = pthread_self();
-	assert(URCU_TLS(rcu_reader).need_mb == 0);
-	assert(!(URCU_TLS(rcu_reader).ctr & RCU_GP_CTR_NEST_MASK));
+	reader_tls->tid = pthread_self();
+	assert(reader_tls->need_mb == NULL);
+	reader_tls->need_mb = &URCU_TLS(urcu_need_mb);
+	assert(!(reader_tls->ctr & RCU_GP_CTR_NEST_MASK));
 
 	mutex_lock(&urcu_domain->registry_lock);
-	assert(!URCU_TLS(rcu_reader).registered);
-	URCU_TLS(rcu_reader).registered = 1;
+	assert(!reader_tls->registered);
+	reader_tls->registered = 1;
 	rcu_init();	/* In case gcc does not support constructor attribute */
-	cds_list_add(&URCU_TLS(rcu_reader).node, &urcu_domain->registry);
+	cds_list_add(&reader_tls->node, &urcu_domain->registry);
 	mutex_unlock(&urcu_domain->registry_lock);
 }
 
 void rcu_register_thread(void)
 {
-	srcu_register_thread(&main_domain);
+	srcu_register_thread(&main_domain, &URCU_TLS(rcu_reader));
 }
 
-void srcu_unregister_thread(struct urcu_domain *urcu_domain)
+void srcu_unregister_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
 	mutex_lock(&urcu_domain->registry_lock);
-	assert(URCU_TLS(rcu_reader).registered);
-	URCU_TLS(rcu_reader).registered = 0;
-	cds_list_del(&URCU_TLS(rcu_reader).node);
+	assert(reader_tls->registered);
+	reader_tls->registered = 0;
+	cds_list_del(&reader_tls->node);
+	reader_tls->need_mb = NULL;
 	mutex_unlock(&urcu_domain->registry_lock);
 }
 
 void rcu_unregister_thread(void)
 {
-	srcu_unregister_thread(&main_domain);
+	srcu_unregister_thread(&main_domain, &URCU_TLS(rcu_reader));
 }
 
 #ifdef RCU_MEMBARRIER
@@ -584,7 +590,7 @@ static void sigrcu_handler(int signo, siginfo_t *siginfo, void *context)
 	 * executed on.
 	 */
 	cmm_smp_mb();
-	_CMM_STORE_SHARED(URCU_TLS(rcu_reader).need_mb, 0);
+	_CMM_STORE_SHARED(URCU_TLS(urcu_need_mb), 0);
 	cmm_smp_mb();
 }
 
