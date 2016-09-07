@@ -95,6 +95,40 @@ void __attribute__((constructor)) rcu_init(void);
 void __attribute__((destructor)) rcu_exit(void);
 #endif
 
+struct urcu_domain {
+	/*
+	 * urcu_domain.gp_lock ensures mutual exclusion between threads calling
+	 * synchronize_rcu().
+	 */
+	pthread_mutex_t gp_lock;
+	/*
+	 * urcu_domain.registry_lock ensures mutual exclusion between threads
+	 * registering and unregistering themselves to/from the
+	 * registry, and with threads reading that registry from
+	 * synchronize_rcu(). However, this lock is not held all the way
+	 * through the completion of awaiting for the grace period. It
+	 * is sporadically released between iterations on the registry.
+	 * urcu_domain.registry_lock may nest inside urcu_domain.gp_lock.
+	 */
+	pthread_mutex_t registry_lock;
+	struct cds_list_head registry;
+	struct rcu_gp gp;
+	/*
+	 * Queue keeping threads awaiting to wait for a grace period.
+	 * Contains struct gp_waiters_thread objects.
+	 */
+	DECLARE_URCU_WAIT_QUEUE(gp_waiters);
+};
+
+#define URCU_DOMAIN_INIT(urcu_domain) \
+	{ \
+		.gp_lock = PTHREAD_MUTEX_INITIALIZER, \
+		.registry_lock = PTHREAD_MUTEX_INITIALIZER, \
+		.registry = CDS_LIST_HEAD_INIT(urcu_domain.registry), \
+		.gp = { .ctr = RCU_GP_COUNT }, \
+		.gp_waiters = URCU_WAIT_QUEUE_HEAD_INIT(urcu_domain.gp_waiters) \
+	}
+
 static struct urcu_domain main_domain = URCU_DOMAIN_INIT(main_domain);
 
 /*
@@ -104,12 +138,6 @@ static struct urcu_domain main_domain = URCU_DOMAIN_INIT(main_domain);
 DEFINE_URCU_TLS(struct rcu_reader, rcu_reader);
 
 static DEFINE_URCU_TLS(char, urcu_need_mb);
-
-/*
- * Queue keeping threads awaiting to wait for a grace period. Contains
- * struct gp_waiters_thread objects.
- */
-static DEFINE_URCU_WAIT_QUEUE(gp_waiters);
 
 static void mutex_lock(pthread_mutex_t *mutex)
 {
@@ -390,7 +418,7 @@ void synchronize_srcu(struct urcu_domain *urcu_domain)
 	 * orders prior memory accesses of threads put into the wait
 	 * queue before their insertion into the wait queue.
 	 */
-	if (urcu_wait_add(&gp_waiters, &wait) != 0) {
+	if (urcu_wait_add(&urcu_domain->gp_waiters, &wait) != 0) {
 		/* Not first in queue: will be awakened by another thread. */
 		urcu_adaptative_busy_wait(&wait);
 		/* Order following memory accesses after grace period. */
@@ -405,7 +433,7 @@ void synchronize_srcu(struct urcu_domain *urcu_domain)
 	/*
 	 * Move all waiters into our local queue.
 	 */
-	urcu_move_waiters(&waiters, &gp_waiters);
+	urcu_move_waiters(&waiters, &urcu_domain->gp_waiters);
 
 	mutex_lock(&urcu_domain->registry_lock);
 
@@ -547,11 +575,13 @@ struct urcu_domain *urcu_create_domain(void)
 		abort();
 	CDS_INIT_LIST_HEAD(&urcu_domain->registry);
 	urcu_domain->gp.ctr = RCU_GP_COUNT;
+	urcu_wait_queue_init(&urcu_domain->gp_waiters);
 	return urcu_domain;
 }
 
 void urcu_destroy_domain(struct urcu_domain *urcu_domain)
 {
+	urcu_wait_queue_finalize(&urcu_domain->gp_waiters);
 	if (!cds_list_empty(&urcu_domain->registry))
 		abort();
 	if (pthread_mutex_destroy(&urcu_domain->gp_lock))

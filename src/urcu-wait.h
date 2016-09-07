@@ -69,6 +69,19 @@ struct urcu_wait_queue {
 #define DEFINE_URCU_WAIT_QUEUE(name)			\
 	struct urcu_wait_queue name = URCU_WAIT_QUEUE_HEAD_INIT(name)
 
+static inline
+void urcu_wait_queue_init(struct urcu_wait_queue *queue)
+{
+	queue->stack.head = CDS_WFS_END;
+	(void) pthread_mutex_init(&queue->stack.lock, NULL);
+}
+
+static inline
+void urcu_wait_queue_finalize(struct urcu_wait_queue *queue)
+{
+	(void) pthread_mutex_destroy(&queue->stack.lock);
+}
+
 struct urcu_waiters {
 	struct cds_wfs_head *head;
 };
