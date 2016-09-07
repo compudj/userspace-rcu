@@ -34,6 +34,19 @@
 
 /* Mapping macros to allow multiple flavors in a single binary. */
 
+#define srcu_read_lock			srcu_read_lock_qsbr
+#define _srcu_read_lock			_srcu_read_lock_qsbr
+#define srcu_read_unlock		srcu_read_unlock_qsbr
+#define _srcu_read_unlock		_srcu_read_unlock_qsbr
+#define srcu_read_ongoing		srcu_read_ongoing_qsbr
+#define _srcu_read_ongoing		_srcu_read_ongoing_qsbr
+#define srcu_quiescent_state		srcu_quiescent_state_qsbr
+#define _srcu_quiescent_state		_srcu_quiescent_state_qsbr
+#define srcu_thread_offline		srcu_thread_offline_qsbr
+#define srcu_thread_online		srcu_thread_online_qsbr
+#define srcu_register_thread		srcu_register_thread_qsbr
+#define srcu_unregister_thread		srcu_unregister_thread_qsbr
+
 #define rcu_read_lock			rcu_read_lock_qsbr
 #define _rcu_read_lock			_rcu_read_lock_qsbr
 #define rcu_read_unlock			rcu_read_unlock_qsbr
@@ -46,10 +59,13 @@
 #define rcu_thread_online		rcu_thread_online_qsbr
 #define rcu_register_thread		rcu_register_thread_qsbr
 #define rcu_unregister_thread		rcu_unregister_thread_qsbr
+
 #define rcu_exit			rcu_exit_qsbr
+#define synchronize_srcu		synchronize_srcu_qsbr
 #define synchronize_rcu			synchronize_rcu_qsbr
 #define rcu_reader			rcu_reader_qsbr
 #define rcu_gp				rcu_gp_qsbr
+#define urcu_domain			urcu_domain_qsbr
 
 #define get_cpu_call_rcu_data		get_cpu_call_rcu_data_qsbr
 #define get_call_rcu_thread		get_call_rcu_thread_qsbr
@@ -73,6 +89,11 @@
 #define	rcu_defer_barrier		rcu_defer_barrier_qsbr
 #define rcu_defer_barrier_thread	rcu_defer_barrier_thread_qsbr
 #define rcu_defer_exit			rcu_defer_exit_qsbr
+
+#define urcu_create_domain		urcu_create_domain_qsbr
+#define urcu_destroy_domain		urcu_destroy_domain_qsbr
+#define urcu_create_reader_tls		urcu_create_reader_tls_qsbr
+#define urcu_destroy_reader_tls		urcu_destroy_reader_tls_qsbr
 
 #define rcu_flavor			rcu_flavor_qsbr
 

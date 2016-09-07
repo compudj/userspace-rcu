@@ -55,6 +55,9 @@ extern "C" {
  * rcu_unregister_thread() should be called before the thread exits.
  */
 
+struct urcu_domain;
+struct rcu_reader;
+
 #ifdef _LGPL_SOURCE
 
 #include <urcu/static/urcu-qsbr.h>
@@ -72,6 +75,14 @@ extern "C" {
  * DON'T FORGET TO USE rcu_register_thread/rcu_unregister_thread()
  * FOR EACH THREAD WITH READ-SIDE CRITICAL SECTION.
  */
+#define srcu_read_lock_qsbr		_srcu_read_lock
+#define srcu_read_unlock_qsbr		_srcu_read_unlock
+#define srcu_read_ongoing_qsbr		_srcu_read_ongoing
+
+#define srcu_quiescent_state_qsbr	_srcu_quiescent_state
+#define srcu_thread_offline_qsbr	_srcu_thread_offline
+#define srcu_thread_online_qsbr		_srcu_thread_online
+
 #define rcu_read_lock_qsbr		_rcu_read_lock
 #define rcu_read_unlock_qsbr		_rcu_read_unlock
 #define rcu_read_ongoing_qsbr		_rcu_read_ongoing
@@ -97,6 +108,14 @@ extern "C" {
 
 #if (!defined(BUILD_QSBR_LIB) && !defined(DEBUG_RCU))
 
+static inline void srcu_read_lock(struct rcu_reader *reader_tls)
+{
+}
+
+static inline void srcu_read_unlock(struct rcu_reader *reader_tls)
+{
+}
+
 static inline void rcu_read_lock(void)
 {
 }
@@ -107,10 +126,17 @@ static inline void rcu_read_unlock(void)
 
 #else /* !DEBUG_RCU */
 
+extern void srcu_read_lock(struct rcu_reader *reader_tls);
+extern void srcu_read_unlock(struct rcu_reader *reader_tls);
 extern void rcu_read_lock(void);
 extern void rcu_read_unlock(void);
 
 #endif /* !DEBUG_RCU */
+
+extern int srcu_read_ongoing(struct rcu_reader *reader_tls);
+extern void srcu_quiescent_state(struct rcu_reader *reader_tls);
+extern void srcu_thread_offline(struct rcu_reader *reader_tls);
+extern void srcu_thread_online(struct rcu_reader *reader_tls);
 
 extern int rcu_read_ongoing(void);
 extern void rcu_quiescent_state(void);
@@ -119,11 +145,24 @@ extern void rcu_thread_online(void);
 
 #endif /* !_LGPL_SOURCE */
 
+extern void synchronize_srcu(struct urcu_domain *urcu_domain);
+
 extern void synchronize_rcu(void);
+
+extern struct urcu_domain *urcu_create_domain(void);
+extern void urcu_destroy_domain(struct urcu_domain *urcu_domain);
+
+extern struct rcu_reader *urcu_create_reader_tls(void);
+extern void urcu_destroy_reader_tls(struct rcu_reader *reader_tls);
 
 /*
  * Reader thread registration.
  */
+extern void srcu_register_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern void srcu_unregister_thread(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+
 extern void rcu_register_thread(void);
 extern void rcu_unregister_thread(void);
 
