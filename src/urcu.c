@@ -160,9 +160,18 @@ static void smp_mb_master(struct urcu_domain *urcu_domain)
 #endif
 
 #ifdef RCU_SIGNAL
+
+/*
+ * rcu_signal_lock is only used by the signal-based urcu flavor to
+ * ensure the need_mb flag is not mixed between synchronize_srcu
+ * executed for different domains concurrently.
+ */
+static pthread_mutex_t rcu_signal_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static void force_mb_all_readers(struct urcu_domain *urcu_domain)
 {
 	struct rcu_reader *index;
+	int ret;
 
 	/*
 	 * Ask for each threads to execute a cmm_smp_mb() so we can consider the
@@ -170,6 +179,10 @@ static void force_mb_all_readers(struct urcu_domain *urcu_domain)
 	 */
 	if (cds_list_empty(&urcu_domain->registry))
 		return;
+
+	ret = pthread_mutex_lock(&rcu_signal_lock);
+	if (ret)
+		urcu_die(ret);
 	/*
 	 * pthread_kill has a cmm_smp_mb(). But beware, we assume it performs
 	 * a cache flush on architectures with non-coherent cache. Let's play
@@ -200,6 +213,9 @@ static void force_mb_all_readers(struct urcu_domain *urcu_domain)
 		}
 	}
 	cmm_smp_mb();	/* read ->need_mb before ending the barrier */
+	ret = pthread_mutex_unlock(&rcu_signal_lock);
+	if (ret)
+		urcu_die(ret);
 }
 
 static void smp_mb_master(struct urcu_domain *urcu_domain)
