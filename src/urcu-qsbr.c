@@ -452,34 +452,40 @@ void synchronize_rcu(void)
  * library wrappers to be used by non-LGPL compatible source code.
  */
 
-void srcu_read_lock(struct rcu_reader *tls)
+void srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
-	_srcu_read_lock(tls);
+	_srcu_read_lock(urcu_domain, tls);
 }
 
-void srcu_read_unlock(struct rcu_reader *tls)
+void srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
-	_srcu_read_unlock(tls);
+	_srcu_read_unlock(urcu_domain, tls);
 }
 
-int srcu_read_ongoing(struct rcu_reader *tls)
+int srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
-	return _srcu_read_ongoing(tls);
+	return _srcu_read_ongoing(urcu_domain, tls);
 }
 
-void srcu_quiescent_state(struct rcu_reader *tls)
+void srcu_quiescent_state(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
-	_srcu_quiescent_state(tls);
+	_srcu_quiescent_state(urcu_domain, tls);
 }
 
-void srcu_thread_offline(struct rcu_reader *tls)
+void srcu_thread_offline(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
-	_srcu_thread_offline(tls);
+	_srcu_thread_offline(urcu_domain, tls);
 }
 
-void srcu_thread_online(struct rcu_reader *tls)
+void srcu_thread_online(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
-	_srcu_thread_online(tls);
+	_srcu_thread_online(urcu_domain, tls);
 }
 
 void rcu_read_lock(void)
@@ -563,7 +569,7 @@ void srcu_register_thread(struct urcu_domain *urcu_domain,
 	reader_tls->registered = 1;
 	cds_list_add(&reader_tls->node, &urcu_domain->registry);
 	mutex_unlock(&urcu_domain->registry_lock);
-	_srcu_thread_online(reader_tls);
+	_srcu_thread_online(urcu_domain, reader_tls);
 }
 
 void rcu_register_thread(void)
@@ -578,7 +584,7 @@ void srcu_unregister_thread(struct urcu_domain *urcu_domain,
 	 * We have to make the thread offline otherwise we end up dealocking
 	 * with a waiting writer.
 	 */
-	_srcu_thread_offline(reader_tls);
+	_srcu_thread_offline(urcu_domain, reader_tls);
 	assert(reader_tls->registered);
 	reader_tls->registered = 0;
 	mutex_lock(&urcu_domain->registry_lock);

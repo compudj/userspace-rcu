@@ -108,11 +108,13 @@ struct rcu_reader;
 
 #if (!defined(BUILD_QSBR_LIB) && !defined(DEBUG_RCU))
 
-static inline void srcu_read_lock(struct rcu_reader *reader_tls)
+static inline void srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
 }
 
-static inline void srcu_read_unlock(struct rcu_reader *reader_tls)
+static inline void srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
 }
 
@@ -126,17 +128,23 @@ static inline void rcu_read_unlock(void)
 
 #else /* !DEBUG_RCU */
 
-extern void srcu_read_lock(struct rcu_reader *reader_tls);
-extern void srcu_read_unlock(struct rcu_reader *reader_tls);
+extern void srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern void srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
 extern void rcu_read_lock(void);
 extern void rcu_read_unlock(void);
 
 #endif /* !DEBUG_RCU */
 
-extern int srcu_read_ongoing(struct rcu_reader *reader_tls);
-extern void srcu_quiescent_state(struct rcu_reader *reader_tls);
-extern void srcu_thread_offline(struct rcu_reader *reader_tls);
-extern void srcu_thread_online(struct rcu_reader *reader_tls);
+extern int srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern void srcu_quiescent_state(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern void srcu_thread_offline(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
+extern void srcu_thread_online(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls);
 
 extern int rcu_read_ongoing(void);
 extern void rcu_quiescent_state(void);

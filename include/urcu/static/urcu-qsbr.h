@@ -90,6 +90,8 @@ struct rcu_reader {
 	unsigned int registered:1;
 };
 
+struct urcu_domain;
+
 extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 
 /*
@@ -133,14 +135,15 @@ static inline enum rcu_state rcu_reader_state(struct rcu_gp *gp,
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
-static inline void _srcu_read_lock(struct rcu_reader *tls)
+static inline void _srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	urcu_assert(tls->ctr);
 }
 
 static inline void _rcu_read_lock(void)
 {
-	_srcu_read_lock(&URCU_TLS(rcu_reader));
+	_srcu_read_lock(NULL, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -150,14 +153,15 @@ static inline void _rcu_read_lock(void)
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
-static inline void _srcu_read_unlock(struct rcu_reader *tls)
+static inline void _srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	urcu_assert(tls->ctr);
 }
 
 static inline void _rcu_read_unlock(void)
 {
-	_srcu_read_unlock(&URCU_TLS(rcu_reader));
+	_srcu_read_unlock(NULL, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -167,14 +171,15 @@ static inline void _rcu_read_unlock(void)
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
-static inline int _srcu_read_ongoing(struct rcu_reader *tls)
+static inline int _srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	return tls->ctr;
 }
 
 static inline int _rcu_read_ongoing(void)
 {
-	return _srcu_read_ongoing(&URCU_TLS(rcu_reader));
+	return _srcu_read_ongoing(NULL, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -208,7 +213,8 @@ static inline void _srcu_quiescent_state_update_and_wakeup(struct rcu_gp *gp,
  * _rcu_quiescent_state() or _rcu_thread_online() already updated it
  * within our thread, so we have no quiescent state to report.
  */
-static inline void _srcu_quiescent_state(struct rcu_reader *reader_tls)
+static inline void _srcu_quiescent_state(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
 	unsigned long gp_ctr;
 	struct rcu_gp *gp = reader_tls->gp;
@@ -221,7 +227,7 @@ static inline void _srcu_quiescent_state(struct rcu_reader *reader_tls)
 
 static inline void _rcu_quiescent_state(void)
 {
-	_srcu_quiescent_state(&URCU_TLS(rcu_reader));
+	_srcu_quiescent_state(NULL, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -232,7 +238,8 @@ static inline void _rcu_quiescent_state(void)
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
-static inline void _srcu_thread_offline(struct rcu_reader *reader_tls)
+static inline void _srcu_thread_offline(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
 	urcu_assert(reader_tls->registered);
 	cmm_smp_mb();
@@ -244,7 +251,7 @@ static inline void _srcu_thread_offline(struct rcu_reader *reader_tls)
 
 static inline void _rcu_thread_offline(void)
 {
-	_srcu_thread_offline(&URCU_TLS(rcu_reader));
+	_srcu_thread_offline(NULL, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -255,7 +262,8 @@ static inline void _rcu_thread_offline(void)
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
-static inline void _srcu_thread_online(struct rcu_reader *reader_tls)
+static inline void _srcu_thread_online(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
 	urcu_assert(reader_tls->registered);
 	cmm_barrier();	/* Ensure the compiler does not reorder us with mutex */
@@ -266,7 +274,7 @@ static inline void _srcu_thread_online(struct rcu_reader *reader_tls)
 
 static inline void _rcu_thread_online(void)
 {
-	_srcu_thread_online(&URCU_TLS(rcu_reader));
+	_srcu_thread_online(NULL, &URCU_TLS(rcu_reader));
 }
 
 #ifdef __cplusplus
