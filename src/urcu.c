@@ -315,7 +315,7 @@ static void wait_for_readers(struct urcu_domain *urcu_domain,
 		if (wait_loops < RCU_QS_ACTIVE_ATTEMPTS)
 			wait_loops++;
 		if (wait_loops >= RCU_QS_ACTIVE_ATTEMPTS) {
-			uatomic_dec(&urcu_domain->gp.futex);
+			uatomic_dec(&gp->futex);
 			/* Write futex before read reader_gp */
 			smp_mb_master(urcu_domain);
 		}
@@ -348,7 +348,7 @@ static void wait_for_readers(struct urcu_domain *urcu_domain,
 			if (wait_loops >= RCU_QS_ACTIVE_ATTEMPTS) {
 				/* Read reader_gp before write futex */
 				smp_mb_master(urcu_domain);
-				uatomic_set(&urcu_domain->gp.futex, 0);
+				uatomic_set(&gp->futex, 0);
 			}
 			break;
 		} else {
@@ -376,7 +376,7 @@ static void wait_for_readers(struct urcu_domain *urcu_domain,
 			if (wait_loops >= RCU_QS_ACTIVE_ATTEMPTS) {
 				/* Read reader_gp before write futex */
 				smp_mb_master(urcu_domain);
-				uatomic_set(&urcu_domain->gp.futex, 0);
+				uatomic_set(&gp->futex, 0);
 			}
 			break;
 		} else {
