@@ -136,8 +136,6 @@ struct rcu_gp {
 	int32_t futex;
 } __attribute__((aligned(CAA_CACHE_LINE_SIZE)));
 
-extern struct rcu_gp rcu_gp;
-
 struct rcu_reader {
 	/* Data used by both reader and synchronize_rcu() */
 	unsigned long ctr;
