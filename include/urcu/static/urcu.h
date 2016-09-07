@@ -148,6 +148,8 @@ struct rcu_reader {
 	unsigned int registered:1;
 };
 
+struct urcu_domain;
+
 extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 
 /*
@@ -213,7 +215,8 @@ static inline void _srcu_read_lock_update(struct rcu_reader *tls,
  * intent is that this function meets the 10-line criterion in LGPL,
  * allowing this function to be invoked directly from non-LGPL code.
  */
-static inline void _srcu_read_lock(struct rcu_reader *tls)
+static inline void _srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	unsigned long tmp;
 
@@ -226,7 +229,7 @@ static inline void _srcu_read_lock(struct rcu_reader *tls)
 
 static inline void _rcu_read_lock(void)
 {
-	_srcu_read_lock(&URCU_TLS(rcu_reader));
+	_srcu_read_lock(NULL, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -254,7 +257,8 @@ static inline void _srcu_read_unlock_update_and_wakeup(struct rcu_reader *tls,
  * helper are smaller than 10 lines of code, and are intended to be
  * usable by non-LGPL code, as called out in LGPL.
  */
-static inline void _srcu_read_unlock(struct rcu_reader *tls)
+static inline void _srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	unsigned long tmp;
 
@@ -267,7 +271,7 @@ static inline void _srcu_read_unlock(struct rcu_reader *tls)
 
 static inline void _rcu_read_unlock(void)
 {
-	_srcu_read_unlock(&URCU_TLS(rcu_reader));
+	_srcu_read_unlock(NULL, &URCU_TLS(rcu_reader));
 }
 
 /*
@@ -277,14 +281,15 @@ static inline void _rcu_read_unlock(void)
  * function meets the 10-line criterion for LGPL, allowing this function
  * to be invoked directly from non-LGPL code.
  */
-static inline int _srcu_read_ongoing(struct rcu_reader *tls)
+static inline int _srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *tls)
 {
 	return tls->ctr & RCU_GP_CTR_NEST_MASK;
 }
 
 static inline int _rcu_read_ongoing(void)
 {
-	return _srcu_read_ongoing(&URCU_TLS(rcu_reader));
+	return _srcu_read_ongoing(NULL, &URCU_TLS(rcu_reader));
 }
 
 #ifdef __cplusplus

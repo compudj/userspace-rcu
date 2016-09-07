@@ -532,19 +532,22 @@ void synchronize_rcu(void)
  * library wrappers to be used by non-LGPL compatible source code.
  */
 
-void srcu_read_lock(struct rcu_reader *reader_tls)
+void srcu_read_lock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
-	_srcu_read_lock(reader_tls);
+	_srcu_read_lock(urcu_domain, reader_tls);
 }
 
-void srcu_read_unlock(struct rcu_reader *reader_tls)
+void srcu_read_unlock(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
-	_srcu_read_unlock(reader_tls);
+	_srcu_read_unlock(urcu_domain, reader_tls);
 }
 
-int srcu_read_ongoing(struct rcu_reader *reader_tls)
+int srcu_read_ongoing(struct urcu_domain *urcu_domain,
+		struct rcu_reader *reader_tls)
 {
-	return _srcu_read_ongoing(reader_tls);
+	return _srcu_read_ongoing(urcu_domain, reader_tls);
 }
 
 void rcu_read_lock(void)
