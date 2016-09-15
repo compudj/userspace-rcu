@@ -86,29 +86,16 @@ static inline void smp_mb_slave(void)
 
 struct rcu_gp {
 	/*
-	 * Global grace period counter.
-	 * Contains the current RCU_GP_CTR_PHASE.
-	 * Also has a RCU_GP_COUNT of 1, to accelerate the reader fast path.
+	 * Global gp phrase (0/1).
 	 * Written to only by writer with mutex taken.
 	 * Read by both writer and readers.
 	 */
-	unsigned long ctr;
+	int ctr;
 
 	int32_t futex;
 } __attribute__((aligned(CAA_CACHE_LINE_SIZE)));
 
 extern struct rcu_gp rcu_gp;
-
-struct rcu_reader {
-	/*
-	 * Data used by reader, keeping ctr read on outermost
-	 * rcu_read_lock to perform matching rcu_read_unlock. Also keeps
-	 * the nesting count.
-	 */
-	unsigned long ctr;
-};
-
-extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 
 struct rcu_percpu_count {
 	//unsigned long lock;
@@ -193,15 +180,13 @@ static inline void _rcu_inc_unlock(unsigned int period)
  * or RCU_GP_CTR_PHASE.  The smp_mb_slave() ensures that the accesses in
  * _rcu_read_lock() happen before the subsequent read-side critical section.
  */
-static inline void _rcu_read_lock_update(unsigned long tmp)
+static inline int _srcu_read_lock_update(void)
 {
-	if (caa_likely(!(tmp & RCU_GP_CTR_NEST_MASK))) {
-		tmp = _CMM_LOAD_SHARED(rcu_gp.ctr);
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp);
-		_rcu_inc_lock(!!(tmp & RCU_GP_CTR_PHASE));
-		smp_mb_slave();
-	} else
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp + RCU_GP_COUNT);
+	int tmp = _CMM_LOAD_SHARED(rcu_gp.ctr);
+
+	_rcu_inc_lock(tmp);
+	smp_mb_slave();
+	return tmp;
 }
 
 /*
@@ -214,14 +199,10 @@ static inline void _rcu_read_lock_update(unsigned long tmp)
  * intent is that this function meets the 10-line criterion in LGPL,
  * allowing this function to be invoked directly from non-LGPL code.
  */
-static inline void _rcu_read_lock(void)
+static inline int _srcu_read_lock(void)
 {
-	unsigned long tmp;
-
 	cmm_barrier();
-	tmp = URCU_TLS(rcu_reader).ctr;
-	urcu_assert((tmp & RCU_GP_CTR_NEST_MASK) != RCU_GP_CTR_NEST_MASK);
-	_rcu_read_lock_update(tmp);
+	return _srcu_read_lock_update();
 }
 
 /*
@@ -232,16 +213,12 @@ static inline void _rcu_read_lock(void)
  * The second smp_mb_slave() call ensures that we write to rcu_reader.ctr
  * before reading the update-side futex.
  */
-static inline void _rcu_read_unlock_update_and_wakeup(unsigned long tmp)
+static inline void _rcu_read_unlock_update_and_wakeup(int tmp)
 {
-	if (caa_likely((tmp & RCU_GP_CTR_NEST_MASK) == RCU_GP_COUNT)) {
-		smp_mb_slave();
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp - RCU_GP_COUNT);
-		_rcu_inc_unlock(!!(tmp & RCU_GP_CTR_PHASE));
-		smp_mb_slave();
-		wake_up_gp();
-	} else
-		_CMM_STORE_SHARED(URCU_TLS(rcu_reader).ctr, tmp - RCU_GP_COUNT);
+	smp_mb_slave();
+	_rcu_inc_unlock(tmp);
+	smp_mb_slave();
+	wake_up_gp();
 }
 
 /*
@@ -249,26 +226,10 @@ static inline void _rcu_read_unlock_update_and_wakeup(unsigned long tmp)
  * helper are smaller than 10 lines of code, and are intended to be
  * usable by non-LGPL code, as called out in LGPL.
  */
-static inline void _rcu_read_unlock(void)
+static inline void _srcu_read_unlock(int period)
 {
-	unsigned long tmp;
-
-	tmp = URCU_TLS(rcu_reader).ctr;
-	urcu_assert(tmp & RCU_GP_CTR_NEST_MASK);
-	_rcu_read_unlock_update_and_wakeup(tmp);
+	_rcu_read_unlock_update_and_wakeup(period);
 	cmm_barrier();	/* Ensure the compiler does not reorder us with mutex */
-}
-
-/*
- * Returns whether within a RCU read-side critical section.
- *
- * This function is less than 10 lines long.  The intent is that this
- * function meets the 10-line criterion for LGPL, allowing this function
- * to be invoked directly from non-LGPL code.
- */
-static inline int _rcu_read_ongoing(void)
-{
-	return URCU_TLS(rcu_reader).ctr & RCU_GP_CTR_NEST_MASK;
 }
 
 #ifdef __cplusplus

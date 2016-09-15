@@ -34,12 +34,10 @@
 
 /* Mapping macros to allow multiple flavors in a single binary. */
 
-#define rcu_read_lock			rcu_read_lock_percpu
-#define _rcu_read_lock			_rcu_read_lock_percpu
-#define rcu_read_unlock			rcu_read_unlock_percpu
-#define _rcu_read_unlock		_rcu_read_unlock_percpu
-#define rcu_read_ongoing		rcu_read_ongoing_percpu
-#define _rcu_read_ongoing		_rcu_read_ongoing_percpu
+#define srcu_read_lock			srcu_read_lock_percpu
+#define _srcu_read_lock			_srcu_read_lock_percpu
+#define srcu_read_unlock		srcu_read_unlock_percpu
+#define _srcu_read_unlock		_srcu_read_unlock_percpu
 #define rcu_register_thread		rcu_register_thread_percpu
 #define rcu_unregister_thread		rcu_unregister_thread_percpu
 #define rcu_init			rcu_init_percpu

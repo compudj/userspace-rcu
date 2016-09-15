@@ -33,9 +33,9 @@ rcutorture_urcu_SOURCES = urcutorture.c
 rcutorture_urcu_CFLAGS = -DRCU_MEMBARRIER $(AM_CFLAGS)
 rcutorture_urcu_LDADD = $(URCU_LIB) $(TAP_LIB)
 
-rcutorture_urcu_percpu_SOURCES = urcutorture.c
-rcutorture_urcu_percpu_CFLAGS = -DRCU_PERCPU $(AM_CFLAGS)
-rcutorture_urcu_percpu_LDADD = $(URCU_PERCPU_LIB) $(TAP_LIB)
+#rcutorture_urcu_percpu_SOURCES = urcutorture.c
+#rcutorture_urcu_percpu_CFLAGS = -DRCU_PERCPU $(AM_CFLAGS)
+#rcutorture_urcu_percpu_LDADD = $(URCU_PERCPU_LIB) $(TAP_LIB)
 
 rcutorture_urcu_mb_SOURCES = urcutorture.c
 rcutorture_urcu_mb_CFLAGS = -DRCU_MB $(AM_CFLAGS)

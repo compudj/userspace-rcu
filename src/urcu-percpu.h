@@ -67,9 +67,8 @@ extern "C" {
  * rcu_read_lock()
  * rcu_read_unlock()
  */
-#define rcu_read_lock_percpu		_rcu_read_lock
-#define rcu_read_unlock_percpu		_rcu_read_unlock
-#define rcu_read_ongoing_percpu		_rcu_read_ongoing
+#define srcu_read_lock_percpu		_srcu_read_lock
+#define srcu_read_unlock_percpu		_srcu_read_unlock
 
 #else /* !_LGPL_SOURCE */
 
@@ -78,9 +77,8 @@ extern "C" {
  * See LGPL-only urcu/static/urcu-pointer.h for documentation.
  */
 
-extern void rcu_read_lock(void);
-extern void rcu_read_unlock(void);
-extern int rcu_read_ongoing(void);
+extern int srcu_read_lock(void);
+extern void srcu_read_unlock(int period);
 
 #endif /* !_LGPL_SOURCE */
 
@@ -113,16 +111,12 @@ static inline void rcu_thread_offline(void)
 {
 }
 
-static inline void rcu_thread_online(void)
-{
-}
-
 #ifdef __cplusplus
 }
 #endif
 
 #include <urcu-call-rcu.h>
 #include <urcu-defer.h>
-#include <urcu-flavor.h>
+//#include <urcu-flavor.h>
 
 #endif /* _URCU_PERCPU_H */

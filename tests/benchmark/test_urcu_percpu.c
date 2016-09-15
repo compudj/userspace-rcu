@@ -167,7 +167,7 @@ void *thr_reader(void *_count)
 
 	rcu_register_thread();
 	rseq_register_current_thread();
-	assert(!rcu_read_ongoing());
+	//assert(!rcu_read_ongoing());
 
 	while (!test_go)
 	{
@@ -175,15 +175,17 @@ void *thr_reader(void *_count)
 	cmm_smp_mb();
 
 	for (;;) {
-		rcu_read_lock();
-		assert(rcu_read_ongoing());
+		int period;
+
+		period = srcu_read_lock();
+		//assert(rcu_read_ongoing());
 		local_ptr = rcu_dereference(test_rcu_pointer);
 		rcu_debug_yield_read();
 		if (local_ptr)
 			assert(*local_ptr == 8);
 		if (caa_unlikely(rduration))
 			loop_sleep(rduration);
-		rcu_read_unlock();
+		srcu_read_unlock(period);
 		URCU_TLS(nr_reads)++;
 		if (caa_unlikely(!test_duration_read()))
 			break;

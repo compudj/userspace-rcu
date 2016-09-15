@@ -118,13 +118,7 @@ void __attribute__((destructor)) rcu_destroy(void);
  */
 static pthread_mutex_t rcu_gp_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t rcu_registry_lock = PTHREAD_MUTEX_INITIALIZER;
-struct rcu_gp rcu_gp = { .ctr = RCU_GP_COUNT };
-
-/*
- * Written to only by each individual reader. Read by both the reader and the
- * writers.
- */
-DEFINE_URCU_TLS(struct rcu_reader, rcu_reader);
+struct rcu_gp rcu_gp = { .ctr = 0 };
 
 /*
  * Queue keeping threads awaiting to wait for a grace period. Contains
@@ -201,7 +195,7 @@ end:
 static void wait_for_cpus(void)
 {
 	unsigned int wait_loops = 0;
-	unsigned long prev_period = 1 - !!(rcu_gp.ctr & RCU_GP_CTR_PHASE);
+	int prev_period = 1 - !!(rcu_gp.ctr & RCU_GP_CTR_PHASE);
 
 	/*
 	 * Wait for sum of CPU lock/unlock counts to match for the
@@ -375,19 +369,14 @@ void synchronize_rcu(void)
  * library wrappers to be used by non-LGPL compatible source code.
  */
 
-void rcu_read_lock(void)
+int srcu_read_lock(void)
 {
-	_rcu_read_lock();
+	return _srcu_read_lock();
 }
 
-void rcu_read_unlock(void)
+void srcu_read_unlock(int period)
 {
-	_rcu_read_unlock();
-}
-
-int rcu_read_ongoing(void)
-{
-	return _rcu_read_ongoing();
+	_srcu_read_unlock(period);
 }
 
 static void rcu_percpu_init(void)
@@ -424,7 +413,7 @@ void rcu_destroy(void)
 	init_done = 0;
 }
 
-DEFINE_RCU_FLAVOR(rcu_flavor);
+//DEFINE_RCU_FLAVOR(rcu_flavor);
 
-#include "urcu-call-rcu-impl.h"
+//#include "urcu-call-rcu-impl.h"
 #include "urcu-defer-impl.h"
