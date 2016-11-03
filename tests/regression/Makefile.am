@@ -8,11 +8,11 @@ dist_noinst_DATA = regression_tests.in
 
 noinst_PROGRAMS = test_urcu_fork \
 	rcutorture_urcu \
-	rcutorture_urcu_percpu \
 	rcutorture_urcu_signal \
 	rcutorture_urcu_mb \
 	rcutorture_urcu_bp \
 	rcutorture_urcu_qsbr
+#rcutorture_urcu_percpu
 
 noinst_HEADERS = rcutorture.h
 
