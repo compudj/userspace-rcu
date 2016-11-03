@@ -67,8 +67,6 @@ extern "C" {
 
 extern int rcu_has_sys_membarrier;
 
-extern struct rseq_lock urcu_percpu_rlock;
-
 static inline void smp_mb_slave(void)
 {
 	if (caa_likely(rcu_has_sys_membarrier))
@@ -115,7 +113,9 @@ extern DECLARE_URCU_TLS(struct rcu_reader, rcu_reader);
 struct rcu_percpu_count {
 	//unsigned long lock;
 	//unsigned long unlock;
+	uintptr_t rseq_lock;
 	uintptr_t lock;
+	uintptr_t rseq_unlock;
 	uintptr_t unlock;
 };
 
@@ -156,13 +156,13 @@ static inline void _rcu_inc_lock(unsigned int period)
 	int cpu;
 	bool result;
 
-	do_rseq(&urcu_percpu_rlock, rseq_state, cpu, result,
-		targetptr, newval,
-		{
-			//newval = (intptr_t)(rcu_cpus.p[cpu].count[period].lock + 1);
-			targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].lock;
-			newval = (intptr_t)((uintptr_t)*targetptr + 1);
-		});
+	rseq_state = rseq_start();
+	cpu = rseq_cpu_at_start(rseq_state);
+	targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].rseq_lock;
+	newval = (intptr_t)((uintptr_t)*targetptr + 1);
+	if (caa_unlikely(!rseq_finish(targetptr, newval, rseq_state))) {
+		uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].lock);
+	}
 #else
 	uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].lock);
 #endif
@@ -176,13 +176,13 @@ static inline void _rcu_inc_unlock(unsigned int period)
 	int cpu;
 	bool result;
 
-	do_rseq(&urcu_percpu_rlock, rseq_state, cpu, result,
-		targetptr, newval,
-		{
-			//newval = (intptr_t)(rcu_cpus.p[cpu].count[period].unlock + 1);
-			targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].unlock;
-			newval = (intptr_t)((uintptr_t)*targetptr + 1);
-		});
+	rseq_state = rseq_start();
+	cpu = rseq_cpu_at_start(rseq_state);
+	targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].rseq_unlock;
+	newval = (intptr_t)((uintptr_t)*targetptr + 1);
+	if (caa_unlikely(!rseq_finish(targetptr, newval, rseq_state))) {
+		uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].unlock);
+	}
 #else
 	uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].unlock);
 #endif
