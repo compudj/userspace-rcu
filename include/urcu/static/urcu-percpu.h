@@ -154,7 +154,6 @@ static inline void _rcu_inc_lock(unsigned int period)
 	struct rseq_state rseq_state;
 	intptr_t *targetptr, newval;
 	int cpu;
-	bool result;
 
 	rseq_state = rseq_start();
 	cpu = rseq_cpu_at_start(rseq_state);
@@ -174,7 +173,6 @@ static inline void _rcu_inc_unlock(unsigned int period)
 	struct rseq_state rseq_state;
 	intptr_t *targetptr, newval;
 	int cpu;
-	bool result;
 
 	rseq_state = rseq_start();
 	cpu = rseq_cpu_at_start(rseq_state);

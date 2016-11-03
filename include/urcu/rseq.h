@@ -80,11 +80,11 @@ extern int rseq_has_sys_membarrier;
 #define READ_ONCE(x)		ACCESS_ONCE(x)
 
 #if defined(__x86_64__) || defined(__i386__)
-#include <rseq-x86.h>
+#include <urcu/rseq-x86.h>
 #elif defined(__ARMEL__)
-#include <rseq-arm.h>
+#include <urcu/rseq-arm.h>
 #elif defined(__PPC__)
-#include <rseq-ppc.h>
+#include <urcu/rseq-ppc.h>
 #else
 #error unsupported target
 #endif

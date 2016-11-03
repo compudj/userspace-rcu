@@ -14,7 +14,6 @@
  * Lesser General Public License for more details.
  */
 
-#define _GNU_SOURCE
 #include <errno.h>
 #include <sched.h>
 #include <stdio.h>
@@ -26,7 +25,7 @@
 #include <signal.h>
 #include <linux/membarrier.h>
 
-#include <rseq.h>
+#include <urcu/rseq.h>
 
 #ifdef __NR_membarrier
 # define membarrier(...)		syscall(__NR_membarrier, __VA_ARGS__)
