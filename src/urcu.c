@@ -73,6 +73,10 @@
 enum membarrier_cmd {
 	MEMBARRIER_CMD_QUERY = 0,
 	MEMBARRIER_CMD_SHARED = (1 << 0),
+	/* reserved for MEMBARRIER_CMD_SHARED_EXPEDITED (1 << 1) */
+	/* reserved for MEMBARRIER_CMD_PRIVATE (1 << 2) */
+	MEMBARRIER_CMD_PRIVATE_EXPEDITED = (1 << 3),
+	MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED = (1 << 4),
 };
 
 #ifdef RCU_MEMBARRIER
@@ -162,9 +166,12 @@ static void mutex_unlock(pthread_mutex_t *mutex)
 #ifdef RCU_MEMBARRIER
 static void smp_mb_master(void)
 {
-	if (caa_likely(rcu_has_sys_membarrier_memb))
-		(void) membarrier(MEMBARRIER_CMD_SHARED, 0);
-	else
+	if (caa_likely(rcu_has_sys_membarrier_memb)) {
+		if (membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0)) {
+			perror("membarrier MEMBARRIER_CMD_PRIVATE_EXPEDITED");
+			abort();
+		}
+	} else
 		cmm_smp_mb();
 }
 #endif
@@ -541,13 +548,22 @@ void rcu_sys_membarrier_status(int available)
 {
 	if (!available)
 		abort();
+	if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0)) {
+		perror("membarrier MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED");
+		abort();
+	}
 }
 #else
 static
 void rcu_sys_membarrier_status(int available)
 {
-	if (available)
+	if (available) {
 		rcu_has_sys_membarrier_memb = 1;
+		if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0)) {
+			perror("membarrier MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED");
+			abort();
+		}
+	}
 }
 #endif
 
@@ -559,7 +575,7 @@ void rcu_init(void)
 		return;
 	init_done = 1;
 	ret = membarrier(MEMBARRIER_CMD_QUERY, 0);
-	rcu_sys_membarrier_status(ret >= 0 && (ret & MEMBARRIER_CMD_SHARED));
+	rcu_sys_membarrier_status(ret >= 0 && (ret & MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED));
 }
 #endif
 
