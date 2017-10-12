@@ -61,15 +61,7 @@
 #define RSEQ_INJECT_FAILED
 #endif
 
-#ifndef RSEQ_FALLBACK_CNT
-#define RSEQ_FALLBACK_CNT	3
-#endif
-
-uint32_t rseq_get_fallback_wait_cnt(void);
-uint32_t rseq_get_fallback_cnt(void);
-
 extern __thread volatile struct rseq __rseq_abi;
-extern int rseq_has_sys_membarrier;
 
 #define likely(x)		__builtin_expect(!!(x), 1)
 #define unlikely(x)		__builtin_expect(!!(x), 0)
@@ -89,23 +81,11 @@ extern int rseq_has_sys_membarrier;
 #error unsupported target
 #endif
 
-enum rseq_lock_state {
-	RSEQ_LOCK_STATE_RESTART = 0,
-	RSEQ_LOCK_STATE_LOCK = 1,
-	RSEQ_LOCK_STATE_FAIL = 2,
-};
-
-struct rseq_lock {
-	pthread_mutex_t lock;
-	int32_t state;		/* enum rseq_lock_state */
-};
-
 /* State returned by rseq_start, passed as argument to rseq_finish. */
 struct rseq_state {
 	volatile struct rseq *rseqp;
 	int32_t cpu_id;		/* cpu_id at start. */
 	uint32_t event_counter;	/* event_counter at start. */
-	int32_t lock_state;	/* Lock state at start. */
 };
 
 /*
@@ -121,28 +101,6 @@ int rseq_register_current_thread(void);
  * Unregister rseq for current thread.
  */
 int rseq_unregister_current_thread(void);
-
-/*
- * The fallback lock should be initialized before being used by any
- * thread, and destroyed after all threads are done using it. This lock
- * should be used by all rseq calls associated with shared data, either
- * between threads, or between processes in a shared memory.
- *
- * There may be many rseq_lock per process, e.g. one per protected data
- * structure.
- */
-int rseq_init_lock(struct rseq_lock *rlock);
-int rseq_destroy_lock(struct rseq_lock *rlock);
-
-/*
- * Restartable sequence fallback prototypes. Fallback on locking when
- * rseq is not initialized, not available on the system, or during
- * single-stepping to ensure forward progress.
- */
-int rseq_fallback_begin(struct rseq_lock *rlock);
-void rseq_fallback_end(struct rseq_lock *rlock, int cpu);
-void rseq_fallback_wait(struct rseq_lock *rlock);
-void rseq_fallback_noinit(struct rseq_state *rseq_state);
 
 /*
  * Restartable sequence fallback for reading the current CPU number.
@@ -194,37 +152,6 @@ struct rseq_state rseq_start(void)
 	 * values before we load the event counter.
 	 */
 	barrier();
-	return result;
-}
-
-static inline __attribute__((always_inline))
-struct rseq_state rseq_start_rlock(struct rseq_lock *rlock)
-{
-	struct rseq_state result;
-
-	result = rseq_start();
-	/*
-	 * Read event counter before lock state and cpu_id. This ensures
-	 * that when the state changes from RESTART to LOCK, if we have
-	 * some threads that have already seen the RESTART still in
-	 * flight, they will necessarily be preempted/signalled before a
-	 * thread can see the LOCK state for that same CPU. That
-	 * preemption/signalling will cause them to restart, so they
-	 * don't interfere with the lock.
-	 */
-
-	if (!has_fast_acquire_release() && likely(rseq_has_sys_membarrier)) {
-		result.lock_state = ACCESS_ONCE(rlock->state);
-		barrier();
-	} else {
-		/*
-		 * Load lock state with acquire semantic. Matches
-		 * smp_store_release() in rseq_fallback_end().
-		 */
-		result.lock_state = smp_load_acquire(&rlock->state);
-	}
-	if (unlikely(result.cpu_id < 0))
-		rseq_fallback_noinit(&result);
 	return result;
 }
 
@@ -315,25 +242,6 @@ failure:
 }
 
 static inline __attribute__((always_inline))
-bool rseq_finish_rlock(struct rseq_lock *rlock,
-		intptr_t *p_spec, intptr_t to_write_spec,
-		void *p_memcpy, void *to_write_memcpy, size_t len_memcpy,
-		intptr_t *p_final, intptr_t to_write_final,
-		struct rseq_state start_value,
-		enum rseq_finish_type type, bool release)
-{
-	if (unlikely(start_value.lock_state != RSEQ_LOCK_STATE_RESTART)) {
-		if (start_value.lock_state == RSEQ_LOCK_STATE_LOCK)
-			rseq_fallback_wait(rlock);
-		return false;
-	}
-	return __rseq_finish(p_spec, to_write_spec, p_memcpy,
-		to_write_memcpy, len_memcpy,
-		p_final, to_write_final,
-		start_value, type, release);
-}
-
-static inline __attribute__((always_inline))
 bool rseq_finish(intptr_t *p, intptr_t to_write,
 		struct rseq_state start_value)
 {
@@ -386,109 +294,5 @@ bool rseq_finish_memcpy_release(void *p_memcpy, void *to_write_memcpy,
 			p_final, to_write_final, start_value,
 			RSEQ_FINISH_MEMCPY, true);
 }
-
-#define __rseq_store_RSEQ_FINISH_SINGLE(_targetptr_spec, _newval_spec,	\
-		_dest_memcpy, _src_memcpy, _len_memcpy,			\
-		_targetptr_final, _newval_final)			\
-	do {								\
-		*(_targetptr_final) = (_newval_final);			\
-	} while (0)
-
-#define __rseq_store_RSEQ_FINISH_TWO(_targetptr_spec, _newval_spec,	\
-		_dest_memcpy, _src_memcpy, _len_memcpy,			\
-		_targetptr_final, _newval_final)			\
-	do {								\
-		*(_targetptr_spec) = (_newval_spec);			\
-		*(_targetptr_final) = (_newval_final);			\
-	} while (0)
-
-#define __rseq_store_RSEQ_FINISH_MEMCPY(_targetptr_spec,		\
-		_newval_spec, _dest_memcpy, _src_memcpy, _len_memcpy,	\
-		_targetptr_final, _newval_final)			\
-	do {								\
-		memcpy(_dest_memcpy, _src_memcpy, _len_memcpy);		\
-		*(_targetptr_final) = (_newval_final);			\
-	} while (0)
-
-/*
- * Helper macro doing two restartable critical section attempts, and if
- * they fail, fallback on locking.
- */
-#define __do_rseq(_type, _lock, _rseq_state, _cpu, _result,		\
-		_targetptr_spec, _newval_spec,				\
-		_dest_memcpy, _src_memcpy, _len_memcpy,			\
-		_targetptr_final, _newval_final, _code, _release)	\
-	do {								\
-		_rseq_state = rseq_start_rlock(_lock);			\
-		_cpu = rseq_cpu_at_start(_rseq_state);			\
-		_result = true;						\
-		_code							\
-		if (unlikely(!_result))					\
-			break;						\
-		if (likely(rseq_finish_rlock(_lock,			\
-				_targetptr_spec, _newval_spec,		\
-				_dest_memcpy, _src_memcpy, _len_memcpy,	\
-				_targetptr_final, _newval_final,	\
-				_rseq_state, _type, _release)))		\
-			break;						\
-		_rseq_state = rseq_start_rlock(_lock);			\
-		_cpu = rseq_cpu_at_start(_rseq_state);			\
-		_result = true;						\
-		_code							\
-		if (unlikely(!_result))					\
-			break;						\
-		if (likely(rseq_finish_rlock(_lock,			\
-				_targetptr_spec, _newval_spec,		\
-				_dest_memcpy, _src_memcpy, _len_memcpy,	\
-				_targetptr_final, _newval_final,	\
-				_rseq_state, _type, _release)))		\
-			break;						\
-		_cpu = rseq_fallback_begin(_lock);			\
-		_result = true;						\
-		_code							\
-		if (likely(_result))					\
-			__rseq_store_##_type(_targetptr_spec,		\
-				 _newval_spec, _dest_memcpy,		\
-				_src_memcpy, _len_memcpy,		\
-				_targetptr_final, _newval_final);	\
-		rseq_fallback_end(_lock, _cpu);				\
-	} while (0)
-
-#define do_rseq(_lock, _rseq_state, _cpu, _result, _targetptr, _newval,	\
-		_code)							\
-	__do_rseq(RSEQ_FINISH_SINGLE, _lock, _rseq_state, _cpu, _result,\
-		NULL, 0, NULL, NULL, 0, _targetptr, _newval, _code, false)
-
-#define do_rseq2(_lock, _rseq_state, _cpu, _result,			\
-		_targetptr_spec, _newval_spec,				\
-		_targetptr_final, _newval_final, _code)			\
-	__do_rseq(RSEQ_FINISH_TWO, _lock, _rseq_state, _cpu, _result,	\
-		_targetptr_spec, _newval_spec,				\
-		NULL, NULL, 0,						\
-		_targetptr_final, _newval_final, _code, false)
-
-#define do_rseq2_release(_lock, _rseq_state, _cpu, _result,		\
-		_targetptr_spec, _newval_spec,				\
-		_targetptr_final, _newval_final, _code)			\
-	__do_rseq(RSEQ_FINISH_TWO, _lock, _rseq_state, _cpu, _result,	\
-		_targetptr_spec, _newval_spec,				\
-		NULL, NULL, 0,						\
-		_targetptr_final, _newval_final, _code, true)
-
-#define do_rseq_memcpy(_lock, _rseq_state, _cpu, _result,		\
-		_dest_memcpy, _src_memcpy, _len_memcpy,			\
-		_targetptr_final, _newval_final, _code)			\
-	__do_rseq(RSEQ_FINISH_MEMCPY, _lock, _rseq_state, _cpu, _result,\
-		NULL, 0,						\
-		_dest_memcpy, _src_memcpy, _len_memcpy,			\
-		_targetptr_final, _newval_final, _code, false)
-
-#define do_rseq_memcpy_release(_lock, _rseq_state, _cpu, _result,	\
-		_dest_memcpy, _src_memcpy, _len_memcpy,			\
-		_targetptr_final, _newval_final, _code)			\
-	__do_rseq(RSEQ_FINISH_MEMCPY, _lock, _rseq_state, _cpu, _result,\
-		NULL, 0,						\
-		_dest_memcpy, _src_memcpy, _len_memcpy,			\
-		_targetptr_final, _newval_final, _code, true)
 
 #endif  /* RSEQ_H_ */

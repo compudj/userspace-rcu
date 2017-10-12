@@ -42,6 +42,7 @@
 #include <urcu/futex.h>
 #include <urcu/tls-compat.h>
 #include <urcu/rseq.h>
+#include <urcu/cpu-op.h>
 #include <urcu/debug.h>
 
 #ifdef __cplusplus
