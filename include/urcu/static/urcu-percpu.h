@@ -160,7 +160,7 @@ retry:
 	return;
 
 norseq_fallback:
-	uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].lock);
+	uatomic_inc(&rcu_cpus.p[urcu_rseq_fallback_current_cpu()].count[period].lock);
 }
 
 static inline void _rcu_inc_unlock(unsigned int period)
@@ -180,7 +180,7 @@ static inline void _rcu_inc_unlock(unsigned int period)
 	return;
 
 norseq_fallback:
-	uatomic_inc(&rcu_cpus.p[sched_getcpu()].count[period].unlock);
+	uatomic_inc(&rcu_cpus.p[urcu_rseq_fallback_current_cpu()].count[period].unlock);
 }
 
 /*
