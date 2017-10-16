@@ -7,7 +7,7 @@ if USE_CYGWIN
 AM_LDFLAGS+=-no-undefined
 endif
 
-include_HEADERS = urcu.h urcu-bp.h urcu-call-rcu.h urcu-defer.h \
+include_HEADERS = urcu.h urcu-bp.h urcu-percpu.h urcu-call-rcu.h urcu-defer.h \
 		urcu-pointer.h urcu-qsbr.h urcu-flavor.h
 
 dist_noinst_HEADERS = urcu-die.h urcu-wait.h compat-getcpu.h \
