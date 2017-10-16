@@ -140,8 +140,8 @@ static inline void _rcu_inc_lock(unsigned int period)
 	intptr_t *targetptr, newval;
 	int cpu;
 
-	rseq_state = urcu_rseq_start();
 retry:
+	rseq_state = urcu_rseq_start();
 	cpu = urcu_rseq_cpu_at_start(rseq_state);
 	if (caa_unlikely(cpu < 0)) {
 		if (caa_unlikely(cpu == -1)) {
