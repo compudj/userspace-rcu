@@ -131,6 +131,16 @@ extern void *rcu_set_pointer_sym_percpu(void **p, void *v);
 
 #endif /* !_LGPL_SOURCE */
 
+/*
+ * rcu_percpu_before_fork, rcu_percpu_after_fork_parent and
+ * rcu_percpu_after_fork_child should be called around fork() system calls when
+ * the child process is not expected to immediately perform an exec(). For
+ * pthread users, see pthread_atfork(3).
+ */
+extern void rcu_percpu_before_fork(void);
+extern void rcu_percpu_after_fork_parent(void);
+extern void rcu_percpu_after_fork_child(void);
+
 extern void synchronize_rcu(void);
 
 /*

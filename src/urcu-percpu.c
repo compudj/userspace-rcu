@@ -413,6 +413,20 @@ void rcu_destroy(void)
 	init_done = 0;
 }
 
+void rcu_percpu_before_fork(void)
+{
+}
+
+void rcu_percpu_after_fork_parent(void)
+{
+}
+
+void rcu_percpu_after_fork_child(void)
+{
+	rcu_destroy();
+	rcu_init();
+}
+
 void *rcu_dereference_sym_percpu(void *p)
 {
 	return _rcu_dereference(p);
