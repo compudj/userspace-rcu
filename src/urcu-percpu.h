@@ -166,6 +166,10 @@ static inline void rcu_quiescent_state(void)
 {
 }
 
+static inline void rcu_thread_online(void)
+{
+}
+
 static inline void rcu_thread_offline(void)
 {
 }
@@ -176,6 +180,6 @@ static inline void rcu_thread_offline(void)
 
 #include <urcu-call-rcu.h>
 #include <urcu-defer.h>
-//#include <urcu-flavor.h>
+#include <urcu-flavor.h>
 
 #endif /* _URCU_PERCPU_H */

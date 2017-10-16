@@ -51,6 +51,8 @@
 #include "urcu-percpu.h"
 #define _LGPL_SOURCE
 
+__thread int srcu_state;
+
 /*
  * If a reader is really non-cooperative and refuses to commit its
  * rcu_active_readers count to memory (there is no barrier in the reader
@@ -379,6 +381,21 @@ void srcu_read_unlock(int period)
 	_srcu_read_unlock(period);
 }
 
+void rcu_read_lock(void)
+{
+	_rcu_read_lock();
+}
+
+void rcu_read_unlock(void)
+{
+	_rcu_read_unlock();
+}
+
+static int rcu_read_ongoing(void)
+{
+	return _rcu_read_ongoing();
+}
+
 static void rcu_percpu_init(void)
 {
 	int nr_cpus = num_possible_cpus();
@@ -451,7 +468,7 @@ void *rcu_cmpxchg_pointer_sym_percpu(void **p, void *old, void *_new)
 	return uatomic_cmpxchg(p, old, _new);
 }
 
-//DEFINE_RCU_FLAVOR(rcu_flavor);
+DEFINE_RCU_FLAVOR(rcu_flavor);
 
-//#include "urcu-call-rcu-impl.h"
+#include "urcu-call-rcu-impl.h"
 #include "urcu-defer-impl.h"

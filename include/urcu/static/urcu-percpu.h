@@ -69,6 +69,7 @@ extern "C" {
  */
 
 extern int rcu_has_sys_membarrier;
+extern __thread int srcu_state;
 
 static inline void smp_mb_slave(void)
 {
@@ -240,6 +241,22 @@ static inline void _srcu_read_unlock(int period)
 {
 	_rcu_read_unlock_update_and_wakeup(period);
 	cmm_barrier();	/* Ensure the compiler does not reorder us with mutex */
+}
+
+static inline void _rcu_read_lock(void)
+{
+	srcu_state = _srcu_read_lock();
+}
+
+static inline void _rcu_read_unlock(void)
+{
+	_srcu_read_unlock(srcu_state);
+}
+
+static inline int _rcu_read_ongoing(void)
+{
+	abort();
+	return -1;
 }
 
 #ifdef __cplusplus
