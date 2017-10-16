@@ -413,6 +413,30 @@ void rcu_destroy(void)
 	init_done = 0;
 }
 
+void *rcu_dereference_sym_percpu(void *p)
+{
+	return _rcu_dereference(p);
+}
+
+void *rcu_set_pointer_sym_percpu(void **p, void *v)
+{
+	cmm_wmb();
+	uatomic_set(p, v);
+	return v;
+}
+
+void *rcu_xchg_pointer_sym_percpu(void **p, void *v)
+{
+	cmm_wmb();
+	return uatomic_xchg(p, v);
+}
+
+void *rcu_cmpxchg_pointer_sym_percpu(void **p, void *old, void *_new)
+{
+	cmm_wmb();
+	return uatomic_cmpxchg(p, old, _new);
+}
+
 //DEFINE_RCU_FLAVOR(rcu_flavor);
 
 //#include "urcu-call-rcu-impl.h"

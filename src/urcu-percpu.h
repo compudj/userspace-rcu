@@ -70,6 +70,11 @@ extern "C" {
 #define srcu_read_lock_percpu		_srcu_read_lock
 #define srcu_read_unlock_percpu		_srcu_read_unlock
 
+#define rcu_dereference_percpu		rcu_dereference
+#define rcu_cmpxchg_pointer_percpu	rcu_cmpxchg_pointer
+#define rcu_xchg_pointer_percpu		rcu_xchg_pointer
+#define rcu_set_pointer_percpu		rcu_set_pointer
+
 #else /* !_LGPL_SOURCE */
 
 /*
@@ -79,6 +84,50 @@ extern "C" {
 
 extern int srcu_read_lock(void);
 extern void srcu_read_unlock(int period);
+
+extern void *rcu_dereference_sym_percpu(void *p);
+#define rcu_dereference_percpu(p)						     \
+	__extension__							     \
+	({								     \
+		__typeof__(p) _________p1 = URCU_FORCE_CAST(__typeof__(p),   \
+			rcu_dereference_sym_percpu(URCU_FORCE_CAST(void *, p))); \
+		(_________p1);						     \
+	})
+
+extern void *rcu_cmpxchg_pointer_sym_percpu(void **p, void *old, void *_new);
+#define rcu_cmpxchg_pointer_percpu(p, old, _new)				     \
+	__extension__							     \
+	({								     \
+		__typeof__(*(p)) _________pold = (old);			     \
+		__typeof__(*(p)) _________pnew = (_new);		     \
+		__typeof__(*(p)) _________p1 = URCU_FORCE_CAST(__typeof__(*(p)), \
+			rcu_cmpxchg_pointer_sym_percpu(URCU_FORCE_CAST(void **, p), \
+						_________pold,		     \
+						_________pnew));	     \
+		(_________p1);						     \
+	})
+
+extern void *rcu_xchg_pointer_sym_percpu(void **p, void *v);
+#define rcu_xchg_pointer_percpu(p, v)					     \
+	__extension__							     \
+	({								     \
+		__typeof__(*(p)) _________pv = (v);			     \
+		__typeof__(*(p)) _________p1 = URCU_FORCE_CAST(__typeof__(*(p)),\
+			rcu_xchg_pointer_sym_percpu(URCU_FORCE_CAST(void **, p), \
+					     _________pv));		     \
+		(_________p1);						     \
+	})
+
+extern void *rcu_set_pointer_sym_percpu(void **p, void *v);
+#define rcu_set_pointer_percpu(p, v)					     \
+	__extension__							     \
+	({								     \
+		__typeof__(*(p)) _________pv = (v);			     \
+		__typeof__(*(p)) _________p1 = URCU_FORCE_CAST(__typeof__(*(p)), \
+			rcu_set_pointer_sym_percpu(URCU_FORCE_CAST(void **, p),  \
+					    _________pv));		     \
+		(_________p1);						     \
+	})
 
 #endif /* !_LGPL_SOURCE */
 

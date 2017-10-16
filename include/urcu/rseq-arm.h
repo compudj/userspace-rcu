@@ -49,7 +49,7 @@ do {									\
  * single-stepping through the restartable critical sections.
  */
 
-#define RSEQ_FINISH_ASM(_target_final, _to_write_final, _start_value, \
+#define _ASM(_target_final, _to_write_final, _start_value, \
 		_failure, _spec_store, _spec_input, \
 		_final_store, _final_input, _extra_clobber, \
 		_setup, _teardown, _scratch) \
@@ -98,27 +98,27 @@ do { \
 	); \
 } while (0)
 
-#define RSEQ_FINISH_FINAL_STORE_ASM() \
+#define _FINAL_STORE_ASM() \
 		"str %[to_write_final], [%[target_final]]\n\t"
 
-#define RSEQ_FINISH_FINAL_STORE_RELEASE_ASM() \
+#define _FINAL_STORE_RELEASE_ASM() \
 		"dmb\n\t" \
-		RSEQ_FINISH_FINAL_STORE_ASM()
+		_FINAL_STORE_ASM()
 
-#define RSEQ_FINISH_FINAL_STORE_INPUT(_target_final, _to_write_final) \
+#define _FINAL_STORE_INPUT(_target_final, _to_write_final) \
 		, [to_write_final]"r"(_to_write_final), \
 		[target_final]"r"(_target_final)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_ASM() \
+#define _SPECULATIVE_STORE_ASM() \
 		"str %[to_write_spec], [%[target_spec]]\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
+#define _SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
 		, [to_write_spec]"r"(_to_write_spec), \
 		[target_spec]"r"(_target_spec)
 
 /* TODO: implement a faster memcpy. */
-#define RSEQ_FINISH_MEMCPY_STORE_ASM() \
+#define _MEMCPY_STORE_ASM() \
 		"cmp %[len_memcpy], #0\n\t" \
 		"beq 333f\n\t" \
 		"222:\n\t" \
@@ -131,7 +131,7 @@ do { \
 		"333:\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
+#define _MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
 		, [to_write_memcpy]"r"(_to_write_memcpy), \
 		[target_memcpy]"r"(_target_memcpy), \
 		[len_memcpy]"r"(_len_memcpy), \
@@ -140,21 +140,21 @@ do { \
 		[rseq_scratch2]"m"(rseq_scratch[2])
 
 /* We can use r0. */
-#define RSEQ_FINISH_MEMCPY_CLOBBER()
+#define _MEMCPY_CLOBBER()
 
-#define RSEQ_FINISH_MEMCPY_SCRATCH() \
+#define _MEMCPY_SCRATCH() \
 		uint32_t rseq_scratch[3];
 
 /*
  * We need to save and restore those input registers so they can be
  * modified within the assembly.
  */
-#define RSEQ_FINISH_MEMCPY_SETUP() \
+#define _MEMCPY_SETUP() \
 		"str %[to_write_memcpy], %[rseq_scratch0]\n\t" \
 		"str %[target_memcpy], %[rseq_scratch1]\n\t" \
 		"str %[len_memcpy], %[rseq_scratch2]\n\t"
 
-#define RSEQ_FINISH_MEMCPY_TEARDOWN() \
+#define _MEMCPY_TEARDOWN() \
 		"ldr %[len_memcpy], %[rseq_scratch2]\n\t" \
 		"ldr %[target_memcpy], %[rseq_scratch1]\n\t" \
 		"ldr %[to_write_memcpy], %[rseq_scratch0]\n\t"

@@ -45,6 +45,8 @@
 #include <urcu/cpu-op.h>
 #include <urcu/debug.h>
 
+#include <urcu/rseq.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -136,7 +138,7 @@ static inline void wake_up_gp(void)
 
 static inline void _rcu_inc_lock(unsigned int period)
 {
-	struct rseq_state rseq_state;
+	struct urcu_rseq_state rseq_state;
 	intptr_t *targetptr, newval;
 	int cpu;
 
@@ -163,7 +165,7 @@ norseq_fallback:
 
 static inline void _rcu_inc_unlock(unsigned int period)
 {
-	struct rseq_state rseq_state;
+	struct urcu_rseq_state rseq_state;
 	intptr_t *targetptr, newval;
 	int cpu;
 

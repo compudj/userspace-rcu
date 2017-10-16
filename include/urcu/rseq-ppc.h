@@ -58,7 +58,7 @@ do {									\
 
 #ifdef __PPC64__
 
-#define RSEQ_FINISH_ASM(_target_final, _to_write_final, _start_value, \
+#define _ASM(_target_final, _to_write_final, _start_value, \
 		_failure, _spec_store, _spec_input, \
 		_final_store, _final_input, _extra_clobber, \
 		_setup, _teardown, _scratch) \
@@ -107,27 +107,27 @@ do {									\
 		: _failure \
 	)
 
-#define RSEQ_FINISH_FINAL_STORE_ASM() \
+#define _FINAL_STORE_ASM() \
 		"std %[to_write_final], 0(%[target_final])\n\t"
 
-#define RSEQ_FINISH_FINAL_STORE_RELEASE_ASM() \
+#define _FINAL_STORE_RELEASE_ASM() \
 		"lwsync\n\t" \
-		RSEQ_FINISH_FINAL_STORE_ASM()
+		_FINAL_STORE_ASM()
 
-#define RSEQ_FINISH_FINAL_STORE_INPUT(_target_final, _to_write_final) \
+#define _FINAL_STORE_INPUT(_target_final, _to_write_final) \
 		, [to_write_final]"r"(_to_write_final), \
 		[target_final]"b"(_target_final)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_ASM() \
+#define _SPECULATIVE_STORE_ASM() \
 		"std %[to_write_spec], 0(%[target_spec])\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
+#define _SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
 		, [to_write_spec]"r"(_to_write_spec), \
 		[target_spec]"b"(_target_spec)
 
 /* TODO: implement a faster memcpy. */
-#define RSEQ_FINISH_MEMCPY_STORE_ASM() \
+#define _MEMCPY_STORE_ASM() \
 		"cmpdi %%r19, 0\n\t" \
 		"beq 333f\n\t" \
 		"addi %%r20, %%r20, -1\n\t" \
@@ -141,30 +141,30 @@ do {									\
 		"333:\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
+#define _MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
 		, [to_write_memcpy]"r"(_to_write_memcpy), \
 		[target_memcpy]"r"(_target_memcpy), \
 		[len_memcpy]"r"(_len_memcpy)
 
-#define RSEQ_FINISH_MEMCPY_CLOBBER() \
+#define _MEMCPY_CLOBBER() \
 		, "r18", "r19", "r20", "r21"
 
-#define RSEQ_FINISH_MEMCPY_SCRATCH()
+#define _MEMCPY_SCRATCH()
 
 /*
  * We use extra registers to hold the input registers, and we don't need to
  * save and restore the input registers.
  */
-#define RSEQ_FINISH_MEMCPY_SETUP() \
+#define _MEMCPY_SETUP() \
 		"mr %%r19, %[len_memcpy]\n\t" \
 		"mr %%r20, %[to_write_memcpy]\n\t" \
 		"mr %%r21, %[target_memcpy]\n\t" \
 
-#define RSEQ_FINISH_MEMCPY_TEARDOWN()
+#define _MEMCPY_TEARDOWN()
 
 #else	/* #ifdef __PPC64__ */
 
-#define RSEQ_FINISH_ASM(_target_final, _to_write_final, _start_value, \
+#define _ASM(_target_final, _to_write_final, _start_value, \
 		_failure, _spec_store, _spec_input, \
 		_final_store, _final_input, _extra_clobber, \
 		_setup, _teardown, _scratch) \
@@ -210,27 +210,27 @@ do {									\
 		: _failure \
 	)
 
-#define RSEQ_FINISH_FINAL_STORE_ASM() \
+#define _FINAL_STORE_ASM() \
 		"stw %[to_write_final], 0(%[target_final])\n\t"
 
-#define RSEQ_FINISH_FINAL_STORE_RELEASE_ASM() \
+#define _FINAL_STORE_RELEASE_ASM() \
 		"lwsync\n\t" \
-		RSEQ_FINISH_FINAL_STORE_ASM()
+		_FINAL_STORE_ASM()
 
-#define RSEQ_FINISH_FINAL_STORE_INPUT(_target_final, _to_write_final) \
+#define _FINAL_STORE_INPUT(_target_final, _to_write_final) \
 		, [to_write_final]"r"(_to_write_final), \
 		[target_final]"b"(_target_final)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_ASM() \
+#define _SPECULATIVE_STORE_ASM() \
 		"stw %[to_write_spec], 0(%[target_spec])\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
+#define _SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
 		, [to_write_spec]"r"(_to_write_spec), \
 		[target_spec]"b"(_target_spec)
 
 /* TODO: implement a faster memcpy. */
-#define RSEQ_FINISH_MEMCPY_STORE_ASM() \
+#define _MEMCPY_STORE_ASM() \
 		"cmpwi %%r19, 0\n\t" \
 		"beq 333f\n\t" \
 		"addi %%r20, %%r20, -1\n\t" \
@@ -244,25 +244,25 @@ do {									\
 		"333:\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
+#define _MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
 		, [to_write_memcpy]"r"(_to_write_memcpy), \
 		[target_memcpy]"r"(_target_memcpy), \
 		[len_memcpy]"r"(_len_memcpy)
 
-#define RSEQ_FINISH_MEMCPY_CLOBBER() \
+#define _MEMCPY_CLOBBER() \
 		, "r18", "r19", "r20", "r21"
 
-#define RSEQ_FINISH_MEMCPY_SCRATCH()
+#define _MEMCPY_SCRATCH()
 
 /*
  * We use extra registers to hold the input registers, and we don't need to
  * save and restore the input registers.
  */
-#define RSEQ_FINISH_MEMCPY_SETUP() \
+#define _MEMCPY_SETUP() \
 		"mr %%r19, %[len_memcpy]\n\t" \
 		"mr %%r20, %[to_write_memcpy]\n\t" \
 		"mr %%r21, %[target_memcpy]\n\t" \
 
-#define RSEQ_FINISH_MEMCPY_TEARDOWN()
+#define _MEMCPY_TEARDOWN()
 
 #endif	/* #else #ifdef __PPC64__ */

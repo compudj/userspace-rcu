@@ -22,8 +22,8 @@
  * SOFTWARE.
  */
 
-#ifndef RSEQ_H
-#define RSEQ_H
+#ifndef URCU_RSEQ_H
+#define URCU_RSEQ_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -87,7 +87,7 @@ extern __thread volatile struct rseq __rseq_abi;
 #endif
 
 /* State returned by rseq_start, passed as argument to rseq_finish. */
-struct rseq_state {
+struct urcu_rseq_state {
 	volatile struct rseq *rseqp;
 	int32_t cpu_id;		/* cpu_id at start. */
 	uint32_t event_counter;	/* event_counter at start. */
@@ -107,7 +107,7 @@ int urcu_rseq_register_current_thread(void);
  */
 int urcu_rseq_fallback_current_cpu(void);
 
-static inline int32_t urcu_rseq_cpu_at_start(struct rseq_state start_value)
+static inline int32_t urcu_rseq_cpu_at_start(struct urcu_rseq_state start_value)
 {
 	return start_value.cpu_id;
 }
@@ -128,9 +128,9 @@ static inline int32_t urcu_rseq_current_cpu(void)
 }
 
 static inline __attribute__((always_inline))
-struct rseq_state urcu_rseq_start(void)
+struct urcu_rseq_state urcu_rseq_start(void)
 {
-	struct rseq_state result;
+	struct urcu_rseq_state result;
 
 	result.rseqp = &__rseq_abi;
 	if (has_single_copy_load_64()) {
@@ -155,10 +155,10 @@ struct rseq_state urcu_rseq_start(void)
 	return result;
 }
 
-enum rseq_finish_type {
-	RSEQ_FINISH_SINGLE,
-	RSEQ_FINISH_TWO,
-	RSEQ_FINISH_MEMCPY,
+enum urcu_rseq_finish_type {
+	URCU_RSEQ_FINISH_SINGLE,
+	URCU_RSEQ_FINISH_TWO,
+	URCU_RSEQ_FINISH_MEMCPY,
 };
 
 /*
@@ -173,64 +173,64 @@ static inline __attribute__((always_inline))
 bool __urcu_rseq_finish(intptr_t *p_spec, intptr_t to_write_spec,
 		void *p_memcpy, void *to_write_memcpy, size_t len_memcpy,
 		intptr_t *p_final, intptr_t to_write_final,
-		struct rseq_state start_value,
-		enum rseq_finish_type type, bool release)
+		struct urcu_rseq_state start_value,
+		enum urcu_rseq_finish_type type, bool release)
 {
 	RSEQ_INJECT_C(9)
 
 	switch (type) {
-	case RSEQ_FINISH_SINGLE:
-		RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
+	case URCU_RSEQ_FINISH_SINGLE:
+		URCU_RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
 			/* no speculative write */, /* no speculative write */,
-			RSEQ_FINISH_FINAL_STORE_ASM(),
-			RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
+			URCU_RSEQ_FINISH_FINAL_STORE_ASM(),
+			URCU_RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
 			/* no extra clobber */, /* no arg */, /* no arg */,
 			/* no arg */
 		);
 		break;
-	case RSEQ_FINISH_TWO:
+	case URCU_RSEQ_FINISH_TWO:
 		if (release) {
-			RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
-				RSEQ_FINISH_SPECULATIVE_STORE_ASM(),
-				RSEQ_FINISH_SPECULATIVE_STORE_INPUT(p_spec, to_write_spec),
-				RSEQ_FINISH_FINAL_STORE_RELEASE_ASM(),
-				RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
+			URCU_RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
+				URCU_RSEQ_FINISH_SPECULATIVE_STORE_ASM(),
+				URCU_RSEQ_FINISH_SPECULATIVE_STORE_INPUT(p_spec, to_write_spec),
+				URCU_RSEQ_FINISH_FINAL_STORE_RELEASE_ASM(),
+				URCU_RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
 				/* no extra clobber */, /* no arg */, /* no arg */,
 				/* no arg */
 			);
 		} else {
-			RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
-				RSEQ_FINISH_SPECULATIVE_STORE_ASM(),
-				RSEQ_FINISH_SPECULATIVE_STORE_INPUT(p_spec, to_write_spec),
-				RSEQ_FINISH_FINAL_STORE_ASM(),
-				RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
+			URCU_RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
+				URCU_RSEQ_FINISH_SPECULATIVE_STORE_ASM(),
+				URCU_RSEQ_FINISH_SPECULATIVE_STORE_INPUT(p_spec, to_write_spec),
+				URCU_RSEQ_FINISH_FINAL_STORE_ASM(),
+				URCU_RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
 				/* no extra clobber */, /* no arg */, /* no arg */,
 				/* no arg */
 			);
 		}
 		break;
-	case RSEQ_FINISH_MEMCPY:
+	case URCU_RSEQ_FINISH_MEMCPY:
 		if (release) {
-			RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
-				RSEQ_FINISH_MEMCPY_STORE_ASM(),
-				RSEQ_FINISH_MEMCPY_STORE_INPUT(p_memcpy, to_write_memcpy, len_memcpy),
-				RSEQ_FINISH_FINAL_STORE_RELEASE_ASM(),
-				RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
-				RSEQ_FINISH_MEMCPY_CLOBBER(),
-				RSEQ_FINISH_MEMCPY_SETUP(),
-				RSEQ_FINISH_MEMCPY_TEARDOWN(),
-				RSEQ_FINISH_MEMCPY_SCRATCH()
+			URCU_RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
+				URCU_RSEQ_FINISH_MEMCPY_STORE_ASM(),
+				URCU_RSEQ_FINISH_MEMCPY_STORE_INPUT(p_memcpy, to_write_memcpy, len_memcpy),
+				URCU_RSEQ_FINISH_FINAL_STORE_RELEASE_ASM(),
+				URCU_RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
+				URCU_RSEQ_FINISH_MEMCPY_CLOBBER(),
+				URCU_RSEQ_FINISH_MEMCPY_SETUP(),
+				URCU_RSEQ_FINISH_MEMCPY_TEARDOWN(),
+				URCU_RSEQ_FINISH_MEMCPY_SCRATCH()
 			);
 		} else {
-			RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
-				RSEQ_FINISH_MEMCPY_STORE_ASM(),
-				RSEQ_FINISH_MEMCPY_STORE_INPUT(p_memcpy, to_write_memcpy, len_memcpy),
-				RSEQ_FINISH_FINAL_STORE_ASM(),
-				RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
-				RSEQ_FINISH_MEMCPY_CLOBBER(),
-				RSEQ_FINISH_MEMCPY_SETUP(),
-				RSEQ_FINISH_MEMCPY_TEARDOWN(),
-				RSEQ_FINISH_MEMCPY_SCRATCH()
+			URCU_RSEQ_FINISH_ASM(p_final, to_write_final, start_value, failure,
+				URCU_RSEQ_FINISH_MEMCPY_STORE_ASM(),
+				URCU_RSEQ_FINISH_MEMCPY_STORE_INPUT(p_memcpy, to_write_memcpy, len_memcpy),
+				URCU_RSEQ_FINISH_FINAL_STORE_ASM(),
+				URCU_RSEQ_FINISH_FINAL_STORE_INPUT(p_final, to_write_final),
+				URCU_RSEQ_FINISH_MEMCPY_CLOBBER(),
+				URCU_RSEQ_FINISH_MEMCPY_SETUP(),
+				URCU_RSEQ_FINISH_MEMCPY_TEARDOWN(),
+				URCU_RSEQ_FINISH_MEMCPY_SCRATCH()
 			);
 		}
 		break;
@@ -243,56 +243,56 @@ failure:
 
 static inline __attribute__((always_inline))
 bool urcu_rseq_finish(intptr_t *p, intptr_t to_write,
-		struct rseq_state start_value)
+		struct urcu_rseq_state start_value)
 {
 	return __urcu_rseq_finish(NULL, 0,
 			NULL, NULL, 0,
 			p, to_write, start_value,
-			RSEQ_FINISH_SINGLE, false);
+			URCU_RSEQ_FINISH_SINGLE, false);
 }
 
 static inline __attribute__((always_inline))
 bool urcu_rseq_finish2(intptr_t *p_spec, intptr_t to_write_spec,
 		intptr_t *p_final, intptr_t to_write_final,
-		struct rseq_state start_value)
+		struct urcu_rseq_state start_value)
 {
 	return __urcu_rseq_finish(p_spec, to_write_spec,
 			NULL, NULL, 0,
 			p_final, to_write_final, start_value,
-			RSEQ_FINISH_TWO, false);
+			URCU_RSEQ_FINISH_TWO, false);
 }
 
 static inline __attribute__((always_inline))
 bool urcu_rseq_finish2_release(intptr_t *p_spec, intptr_t to_write_spec,
 		intptr_t *p_final, intptr_t to_write_final,
-		struct rseq_state start_value)
+		struct urcu_rseq_state start_value)
 {
 	return __urcu_rseq_finish(p_spec, to_write_spec,
 			NULL, NULL, 0,
 			p_final, to_write_final, start_value,
-			RSEQ_FINISH_TWO, true);
+			URCU_RSEQ_FINISH_TWO, true);
 }
 
 static inline __attribute__((always_inline))
 bool urcu_rseq_finish_memcpy(void *p_memcpy, void *to_write_memcpy,
 		size_t len_memcpy, intptr_t *p_final, intptr_t to_write_final,
-		struct rseq_state start_value)
+		struct urcu_rseq_state start_value)
 {
 	return __urcu_rseq_finish(NULL, 0,
 			p_memcpy, to_write_memcpy, len_memcpy,
 			p_final, to_write_final, start_value,
-			RSEQ_FINISH_MEMCPY, false);
+			URCU_RSEQ_FINISH_MEMCPY, false);
 }
 
 static inline __attribute__((always_inline))
 bool urcu_rseq_finish_memcpy_release(void *p_memcpy, void *to_write_memcpy,
 		size_t len_memcpy, intptr_t *p_final, intptr_t to_write_final,
-		struct rseq_state start_value)
+		struct urcu_rseq_state start_value)
 {
 	return __urcu_rseq_finish(NULL, 0,
 			p_memcpy, to_write_memcpy, len_memcpy,
 			p_final, to_write_final, start_value,
-			RSEQ_FINISH_MEMCPY, true);
+			URCU_RSEQ_FINISH_MEMCPY, true);
 }
 
-#endif  /* RSEQ_H_ */
+#endif  /* URCU_RSEQ_H_ */

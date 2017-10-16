@@ -50,7 +50,7 @@ do {									\
  * The __rseq_table section can be used by debuggers to better handle
  * single-stepping through the restartable critical sections.
  */
-#define RSEQ_FINISH_ASM(_target_final, _to_write_final, _start_value, \
+#define URCU_RSEQ_FINISH_ASM(_target_final, _to_write_final, _start_value, \
 		_failure, _spec_store, _spec_input, \
 		_final_store, _final_input, _extra_clobber, \
 		_setup, _teardown, _scratch) \
@@ -97,27 +97,27 @@ do { \
 	); \
 } while (0)
 
-#define RSEQ_FINISH_FINAL_STORE_ASM() \
+#define URCU_RSEQ_FINISH_FINAL_STORE_ASM() \
 		"movq %[to_write_final], %[target_final]\n\t"
 
 /* x86-64 is TSO */
-#define RSEQ_FINISH_FINAL_STORE_RELEASE_ASM() \
-		RSEQ_FINISH_FINAL_STORE_ASM()
+#define URCU_RSEQ_FINISH_FINAL_STORE_RELEASE_ASM() \
+		URCU_RSEQ_FINISH_FINAL_STORE_ASM()
 
-#define RSEQ_FINISH_FINAL_STORE_INPUT(_target_final, _to_write_final) \
+#define URCU_RSEQ_FINISH_FINAL_STORE_INPUT(_target_final, _to_write_final) \
 		, [to_write_final]"r"(_to_write_final), \
 		[target_final]"m"(*(_target_final))
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_ASM() \
+#define URCU_RSEQ_FINISH_SPECULATIVE_STORE_ASM() \
 		"movq %[to_write_spec], %[target_spec]\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
+#define URCU_RSEQ_FINISH_SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
 		, [to_write_spec]"r"(_to_write_spec), \
 		[target_spec]"m"(*(_target_spec))
 
 /* TODO: implement a faster memcpy. */
-#define RSEQ_FINISH_MEMCPY_STORE_ASM() \
+#define URCU_RSEQ_FINISH_MEMCPY_STORE_ASM() \
 		"test %[len_memcpy], %[len_memcpy]\n\t" \
 		"jz 333f\n\t" \
 		"222:\n\t" \
@@ -130,7 +130,7 @@ do { \
 		"333:\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
+#define URCU_RSEQ_FINISH_MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
 		, [to_write_memcpy]"r"(_to_write_memcpy), \
 		[target_memcpy]"r"(_target_memcpy), \
 		[len_memcpy]"r"(_len_memcpy), \
@@ -138,22 +138,22 @@ do { \
 		[rseq_scratch1]"m"(rseq_scratch[1]), \
 		[rseq_scratch2]"m"(rseq_scratch[2])
 
-#define RSEQ_FINISH_MEMCPY_CLOBBER()	\
+#define URCU_RSEQ_FINISH_MEMCPY_CLOBBER()	\
 		, "rax"
 
-#define RSEQ_FINISH_MEMCPY_SCRATCH() \
+#define URCU_RSEQ_FINISH_MEMCPY_SCRATCH() \
 		uint64_t rseq_scratch[3];
 
 /*
  * We need to save and restore those input registers so they can be
  * modified within the assembly.
  */
-#define RSEQ_FINISH_MEMCPY_SETUP() \
+#define URCU_RSEQ_FINISH_MEMCPY_SETUP() \
 		"movq %[to_write_memcpy], %[rseq_scratch0]\n\t" \
 		"movq %[target_memcpy], %[rseq_scratch1]\n\t" \
 		"movq %[len_memcpy], %[rseq_scratch2]\n\t"
 
-#define RSEQ_FINISH_MEMCPY_TEARDOWN() \
+#define URCU_RSEQ_FINISH_MEMCPY_TEARDOWN() \
 		"movq %[rseq_scratch2], %[len_memcpy]\n\t" \
 		"movq %[rseq_scratch1], %[target_memcpy]\n\t" \
 		"movq %[rseq_scratch0], %[to_write_memcpy]\n\t"
@@ -194,7 +194,7 @@ do {									\
  * lessen register pressure. Especially needed when compiling
  * do_rseq_memcpy() in O0.
  */
-#define RSEQ_FINISH_ASM(_target_final, _to_write_final, _start_value, \
+#define URCU_RSEQ_FINISH_ASM(_target_final, _to_write_final, _start_value, \
 		_failure, _spec_store, _spec_input, \
 		_final_store, _final_input, _extra_clobber, \
 		_setup, _teardown, _scratch) \
@@ -240,29 +240,29 @@ do { \
 	); \
 } while (0)
 
-#define RSEQ_FINISH_FINAL_STORE_ASM() \
+#define URCU_RSEQ_FINISH_FINAL_STORE_ASM() \
 		"movl %[to_write_final], %%eax\n\t" \
 		"movl %%eax, %[target_final]\n\t"
 
-#define RSEQ_FINISH_FINAL_STORE_RELEASE_ASM() \
+#define URCU_RSEQ_FINISH_FINAL_STORE_RELEASE_ASM() \
 		"lock; addl $0,0(%%esp)\n\t" \
-		RSEQ_FINISH_FINAL_STORE_ASM()
+		URCU_RSEQ_FINISH_FINAL_STORE_ASM()
 
-#define RSEQ_FINISH_FINAL_STORE_INPUT(_target_final, _to_write_final) \
+#define URCU_RSEQ_FINISH_FINAL_STORE_INPUT(_target_final, _to_write_final) \
 		, [to_write_final]"m"(_to_write_final), \
 		[target_final]"m"(*(_target_final))
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_ASM() \
+#define URCU_RSEQ_FINISH_SPECULATIVE_STORE_ASM() \
 		"movl %[to_write_spec], %%eax\n\t" \
 		"movl %%eax, %[target_spec]\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
+#define URCU_RSEQ_FINISH_SPECULATIVE_STORE_INPUT(_target_spec, _to_write_spec) \
 		, [to_write_spec]"m"(_to_write_spec), \
 		[target_spec]"m"(*(_target_spec))
 
 /* TODO: implement a faster memcpy. */
-#define RSEQ_FINISH_MEMCPY_STORE_ASM() \
+#define URCU_RSEQ_FINISH_MEMCPY_STORE_ASM() \
 		"movl %[len_memcpy], %%eax\n\t" \
 		"test %%eax, %%eax\n\t" \
 		"jz 333f\n\t" \
@@ -276,7 +276,7 @@ do { \
 		"333:\n\t" \
 		RSEQ_INJECT_ASM(4)
 
-#define RSEQ_FINISH_MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
+#define URCU_RSEQ_FINISH_MEMCPY_STORE_INPUT(_target_memcpy, _to_write_memcpy, _len_memcpy) \
 		, [to_write_memcpy]"r"(_to_write_memcpy), \
 		[target_memcpy]"r"(_target_memcpy), \
 		[len_memcpy]"m"(_len_memcpy), \
@@ -284,22 +284,22 @@ do { \
 		[rseq_scratch1]"m"(rseq_scratch[1]), \
 		[rseq_scratch2]"m"(rseq_scratch[2])
 
-#define RSEQ_FINISH_MEMCPY_CLOBBER()
+#define URCU_RSEQ_FINISH_MEMCPY_CLOBBER()
 
-#define RSEQ_FINISH_MEMCPY_SCRATCH() \
+#define URCU_RSEQ_FINISH_MEMCPY_SCRATCH() \
 		uint32_t rseq_scratch[3];
 
 /*
  * We need to save and restore those input registers so they can be
  * modified within the assembly.
  */
-#define RSEQ_FINISH_MEMCPY_SETUP() \
+#define URCU_RSEQ_FINISH_MEMCPY_SETUP() \
 		"movl %[to_write_memcpy], %[rseq_scratch0]\n\t" \
 		"movl %[target_memcpy], %[rseq_scratch1]\n\t" \
 		"movl %[len_memcpy], %%eax\n\t" \
 		"movl %%eax, %[rseq_scratch2]\n\t"
 
-#define RSEQ_FINISH_MEMCPY_TEARDOWN() \
+#define URCU_RSEQ_FINISH_MEMCPY_TEARDOWN() \
 		"movl %[rseq_scratch1], %[target_memcpy]\n\t" \
 		"movl %[rseq_scratch0], %[to_write_memcpy]\n\t"
 
