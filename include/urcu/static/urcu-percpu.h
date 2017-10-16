@@ -255,8 +255,7 @@ static inline void _rcu_read_unlock(void)
 
 static inline int _rcu_read_ongoing(void)
 {
-	abort();
-	return -1;
+	return 0;	//XXX TODO
 }
 
 #ifdef __cplusplus
