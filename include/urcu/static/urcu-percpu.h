@@ -176,8 +176,11 @@ static inline void _rcu_inc_unlock(unsigned int period)
 		goto norseq_fallback;
 	targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].rseq_unlock;
 	newval = (intptr_t)((uintptr_t)*targetptr + 1);
-	if (caa_unlikely(!urcu_rseq_finish(targetptr, newval, rseq_state)))
+	if (caa_unlikely(!urcu_rseq_finish(targetptr, newval, rseq_state))) {
+		urcu_rseq_prepare_unload();
 		goto norseq_fallback;
+	}
+	urcu_rseq_prepare_unload();
 	return;
 
 norseq_fallback:
