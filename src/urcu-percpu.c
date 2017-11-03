@@ -466,6 +466,11 @@ void *rcu_cmpxchg_pointer_sym_percpu(void **p, void *old, void *_new)
 	return uatomic_cmpxchg(p, old, _new);
 }
 
+int urcu_percpu_current_cpu(void)
+{
+	return rseq_current_cpu();
+}
+
 DEFINE_RCU_FLAVOR(rcu_flavor);
 
 #include "urcu-call-rcu-impl.h"

@@ -70,6 +70,8 @@ extern "C" {
 extern int rcu_has_sys_membarrier;
 extern __thread int srcu_state;
 
+int urcu_percpu_current_cpu(void);
+
 static inline void smp_mb_slave(void)
 {
 	if (caa_likely(rcu_has_sys_membarrier))
@@ -156,7 +158,7 @@ retry:
 	}
 	/* rseq has been aborted, use cpu_opv. */
 	for (;;) {
-		cpu = rseq_current_cpu();
+		cpu = urcu_percpu_current_cpu();
 		ret = cpu_op_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].lock,
 				1, cpu);
 		if (!ret)
@@ -167,7 +169,7 @@ retry:
 	return;
 
 norseq_fallback:
-	uatomic_inc(&rcu_cpus.p[rseq_current_cpu()].count[period].lock);
+	uatomic_inc(&rcu_cpus.p[urcu_percpu_current_cpu()].count[period].lock);
 	smp_mb_slave();
 }
 
@@ -196,7 +198,7 @@ retry:
 	}
 	/* rseq has been aborted, use cpu_opv. */
 	for (;;) {
-		cpu = rseq_current_cpu();
+		cpu = urcu_percpu_current_cpu();
 		ret = cpu_op_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].unlock,
 				1, cpu);
 		if (!ret)
@@ -208,7 +210,7 @@ retry:
 
 norseq_fallback:
 	smp_mb_slave();
-	uatomic_inc(&rcu_cpus.p[rseq_current_cpu()].count[period].unlock);
+	uatomic_inc(&rcu_cpus.p[urcu_percpu_current_cpu()].count[period].unlock);
 	smp_mb_slave();
 }
 

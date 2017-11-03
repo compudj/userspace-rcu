@@ -69,7 +69,7 @@ test_urcu_yield_LDADD = $(URCU_LIB) $(DEBUG_YIELD_LIB)
 test_urcu_yield_CFLAGS = -DDEBUG_YIELD $(AM_CFLAGS)
 
 test_urcu_percpu_SOURCES = test_urcu_percpu.c
-test_urcu_percpu_LDADD = $(URCU_PERCPU_LIB)
+test_urcu_percpu_LDADD = $(URCU_PERCPU_LIB) -lrseq -lcpu-op
 test_urcu_percpu_CFLAGS = $(AM_CFLAGS)
 
 test_urcu_percpu_dynamic_link_SOURCES = test_urcu_percpu.c
