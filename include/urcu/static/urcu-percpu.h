@@ -143,8 +143,10 @@ retry:
 	cpu = rseq_cpu_start();
 	ret = rseq_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].lock,
 			1, cpu);
-	if (likely(!ret))
+	if (likely(!ret)) {
+		cmm_barrier();
 		return;
+	}
 	/* rseq has either been aborted, or is not initialized. */
 	cpu = rseq_current_cpu_raw();
 	if (cpu < 0) {
@@ -158,27 +160,33 @@ retry:
 		ret = cpu_op_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].lock,
 				1, cpu);
 		if (!ret)
-			return;
+			break;
 		assert(ret >= 0 || errno == EAGAIN);
 	}
+	smp_mb_slave();
 	return;
 
 norseq_fallback:
 	uatomic_inc(&rcu_cpus.p[rseq_current_cpu()].count[period].lock);
+	smp_mb_slave();
 }
 
 static inline void _rcu_inc_unlock(unsigned int period)
 {
 	int cpu, ret;
 
+	cmm_barrier();
 retry:
 	/* rseq fast-path. */
 	cpu = rseq_cpu_start();
 	ret = rseq_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].unlock,
 			1, cpu);
 	rseq_prepare_unload();
-	if (likely(!ret))
+	if (likely(!ret)) {
+		cmm_barrier();
 		return;
+	}
+	smp_mb_slave();
 	/* rseq has either been aborted, or is not initialized. */
 	cpu = rseq_current_cpu_raw();
 	if (cpu < 0) {
@@ -192,13 +200,16 @@ retry:
 		ret = cpu_op_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].unlock,
 				1, cpu);
 		if (!ret)
-			return;
+			break;
 		assert(ret >= 0 || errno == EAGAIN);
 	}
+	smp_mb_slave();
 	return;
 
 norseq_fallback:
+	smp_mb_slave();
 	uatomic_inc(&rcu_cpus.p[rseq_current_cpu()].count[period].unlock);
+	smp_mb_slave();
 }
 
 /*
@@ -213,7 +224,6 @@ static inline int _srcu_read_lock_update(void)
 	int tmp = _CMM_LOAD_SHARED(rcu_gp.ctr);
 
 	_rcu_inc_lock(tmp);
-	smp_mb_slave();
 	return tmp;
 }
 
@@ -243,9 +253,7 @@ static inline int _srcu_read_lock(void)
  */
 static inline void _rcu_read_unlock_update_and_wakeup(int tmp)
 {
-	smp_mb_slave();
 	_rcu_inc_unlock(tmp);
-	smp_mb_slave();
 	wake_up_gp();
 }
 
