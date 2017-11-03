@@ -42,10 +42,9 @@
 #include <urcu/futex.h>
 #include <urcu/tls-compat.h>
 #include <urcu/rseq.h>
-#include <urcu/cpu-op.h>
 #include <urcu/debug.h>
-
 #include <urcu/rseq.h>
+#include <cpu-op.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -102,9 +101,7 @@ struct rcu_gp {
 extern struct rcu_gp rcu_gp;
 
 struct rcu_percpu_count {
-	uintptr_t rseq_lock;
 	uintptr_t lock;
-	uintptr_t rseq_unlock;
 	uintptr_t unlock;
 };
 
@@ -139,52 +136,69 @@ static inline void wake_up_gp(void)
 
 static inline void _rcu_inc_lock(unsigned int period)
 {
-	struct urcu_rseq_state rseq_state;
-	intptr_t *targetptr, newval;
-	int cpu;
+	int cpu, ret;
 
 retry:
-	rseq_state = urcu_rseq_start();
-	cpu = urcu_rseq_cpu_at_start(rseq_state);
-	if (caa_unlikely(cpu < 0)) {
-		if (caa_unlikely(cpu == -1)) {
-			if (!urcu_rseq_register_current_thread())
-				goto retry;
-		}
-		/* rseq is unavailable */
+	/* rseq fast-path. */
+	cpu = rseq_cpu_start();
+	ret = rseq_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].lock,
+			1, cpu);
+	if (likely(!ret))
+		return;
+	/* rseq has either been aborted, or is not initialized. */
+	cpu = rseq_current_cpu_raw();
+	if (cpu < 0) {
+		if (cpu == -1 && !urcu_rseq_register_current_thread())
+			goto retry;
 		goto norseq_fallback;
 	}
-	targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].rseq_lock;
-	newval = (intptr_t)((uintptr_t)*targetptr + 1);
-	if (caa_unlikely(!urcu_rseq_finish(targetptr, newval, rseq_state)))
-		goto norseq_fallback;
+	/* rseq has been aborted, use cpu_opv. */
+	for (;;) {
+		cpu = rseq_current_cpu();
+		ret = cpu_op_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].lock,
+				1, cpu);
+		if (!ret)
+			return;
+		assert(ret >= 0 || errno == EAGAIN);
+	}
 	return;
 
 norseq_fallback:
-	uatomic_inc(&rcu_cpus.p[urcu_rseq_fallback_current_cpu()].count[period].lock);
+	uatomic_inc(&rcu_cpus.p[rseq_current_cpu()].count[period].lock);
 }
 
 static inline void _rcu_inc_unlock(unsigned int period)
 {
-	struct urcu_rseq_state rseq_state;
-	intptr_t *targetptr, newval;
-	int cpu;
+	int cpu, ret;
 
-	rseq_state = urcu_rseq_start();
-	cpu = urcu_rseq_cpu_at_start(rseq_state);
-	if (caa_unlikely(cpu < 0))
-		goto norseq_fallback;
-	targetptr = (intptr_t *)&rcu_cpus.p[cpu].count[period].rseq_unlock;
-	newval = (intptr_t)((uintptr_t)*targetptr + 1);
-	if (caa_unlikely(!urcu_rseq_finish(targetptr, newval, rseq_state))) {
-		urcu_rseq_prepare_unload();
+retry:
+	/* rseq fast-path. */
+	cpu = rseq_cpu_start();
+	ret = rseq_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].unlock,
+			1, cpu);
+	rseq_prepare_unload();
+	if (likely(!ret))
+		return;
+	/* rseq has either been aborted, or is not initialized. */
+	cpu = rseq_current_cpu_raw();
+	if (cpu < 0) {
+		if (cpu == -1 && !urcu_rseq_register_current_thread())
+			goto retry;
 		goto norseq_fallback;
 	}
-	urcu_rseq_prepare_unload();
+	/* rseq has been aborted, use cpu_opv. */
+	for (;;) {
+		cpu = rseq_current_cpu();
+		ret = cpu_op_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].unlock,
+				1, cpu);
+		if (!ret)
+			return;
+		assert(ret >= 0 || errno == EAGAIN);
+	}
 	return;
 
 norseq_fallback:
-	uatomic_inc(&rcu_cpus.p[urcu_rseq_fallback_current_cpu()].count[period].unlock);
+	uatomic_inc(&rcu_cpus.p[rseq_current_cpu()].count[period].unlock);
 }
 
 /*

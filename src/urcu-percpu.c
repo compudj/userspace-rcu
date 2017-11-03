@@ -218,7 +218,6 @@ static void wait_for_cpus(void)
 		for_each_possible_cpu(i) {
 			struct rcu_percpu *pcpu = &rcu_cpus.p[i];
 
-			sum -= CMM_LOAD_SHARED(pcpu->count[prev_period].rseq_unlock);
 			sum -= CMM_LOAD_SHARED(pcpu->count[prev_period].unlock);
 		}
 		/*
@@ -231,7 +230,6 @@ static void wait_for_cpus(void)
 		for_each_possible_cpu(i) {
 			struct rcu_percpu *pcpu = &rcu_cpus.p[i];
 
-			sum += CMM_LOAD_SHARED(pcpu->count[prev_period].rseq_lock);
 			sum += CMM_LOAD_SHARED(pcpu->count[prev_period].lock);
 		}
 

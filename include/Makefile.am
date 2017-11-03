@@ -11,8 +11,7 @@ nobase_dist_include_HEADERS = urcu/compiler.h urcu/hlist.h urcu/list.h \
 		urcu/static/urcu.h urcu/static/urcu-pointer.h \
 		urcu/static/urcu-qsbr.h urcu/static/wfcqueue.h \
 		urcu/static/wfqueue.h urcu/static/wfstack.h \
-		urcu/tls-compat.h urcu/debug.h urcu/rseq.h urcu/cpu-op.h \
-		urcu/rseq-arm.h urcu/rseq-ppc.h urcu/rseq-x86.h \
+		urcu/tls-compat.h urcu/debug.h urcu/rseq.h \
 		urcu/map/urcu-percpu.h urcu/static/urcu-percpu.h
 
 # Don't distribute generated headers
