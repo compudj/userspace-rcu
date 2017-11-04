@@ -80,14 +80,7 @@ static inline void smp_mb_slave(void)
 		cmm_smp_mb();
 }
 
-/*
- * The trick here is that RCU_GP_CTR_PHASE must be a multiple of 8 so we can use
- * a full 8-bits, 16-bits or 32-bits bitmask for the lower order bits.
- */
-#define RCU_GP_COUNT		(1UL << 0)
-/* Use the amount of bits equal to half of the architecture long size */
-#define RCU_GP_CTR_PHASE	(1UL << (sizeof(unsigned long) << 2))
-#define RCU_GP_CTR_NEST_MASK	(RCU_GP_CTR_PHASE - 1)
+#define RCU_GP_CTR_PHASE	(1UL << 0)
 
 struct rcu_gp {
 	/*
