@@ -67,14 +67,14 @@ extern "C" {
  *        master   O      O
  */
 
-extern int rcu_has_sys_membarrier;
+extern int urcu_percpu_has_sys_membarrier;
 extern __thread int srcu_state;
 
 int urcu_percpu_current_cpu(void);
 
 static inline void smp_mb_slave(void)
 {
-	if (caa_likely(rcu_has_sys_membarrier))
+	if (caa_likely(urcu_percpu_has_sys_membarrier))
 		cmm_barrier();
 	else
 		cmm_smp_mb();

@@ -106,10 +106,14 @@ int num_possible_cpus(void)
 enum membarrier_cmd {
 	MEMBARRIER_CMD_QUERY = 0,
 	MEMBARRIER_CMD_SHARED = (1 << 0),
+	/* reserved for MEMBARRIER_CMD_SHARED_EXPEDITED (1 << 1) */
+	/* reserved for MEMBARRIER_CMD_PRIVATE (1 << 2) */
+	MEMBARRIER_CMD_PRIVATE_EXPEDITED = (1 << 3),
+	MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED = (1 << 4),
 };
 
-static int init_done;
-int rcu_has_sys_membarrier;
+static int rcu_percpu_refcount;
+int urcu_percpu_has_sys_membarrier;
 
 void __attribute__((constructor)) rcu_init(void);
 void __attribute__((destructor)) rcu_destroy(void);
@@ -120,6 +124,7 @@ void __attribute__((destructor)) rcu_destroy(void);
  */
 static pthread_mutex_t rcu_gp_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t rcu_registry_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
 struct rcu_gp rcu_gp = { .ctr = 0 };
 
 /*
@@ -148,9 +153,12 @@ static void mutex_unlock(pthread_mutex_t *mutex)
 
 static void smp_mb_master(void)
 {
-	if (caa_likely(rcu_has_sys_membarrier))
-		(void) membarrier(MEMBARRIER_CMD_SHARED, 0);
-	else
+	if (caa_likely(urcu_percpu_has_sys_membarrier)) {
+		if (membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0)) {
+			perror("membarrier MEMBARRIER_CMD_PRIVATE_EXPEDITED");
+			abort();
+		}
+	} else
 		cmm_smp_mb();
 }
 
@@ -405,27 +413,56 @@ static void rcu_percpu_init(void)
 		abort();
 }
 
+#ifdef CONFIG_RCU_FORCE_SYS_MEMBARRIER
+static
+void rcu_sys_membarrier_status(int available)
+{
+	if (!available)
+		abort();
+	if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0)) {
+		perror("membarrier MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED");
+		abort();
+	}
+}
+#else
+static
+void rcu_sys_membarrier_status(int available)
+{
+	if (available) {
+		urcu_percpu_has_sys_membarrier = 1;
+		if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0)) {
+			perror("membarrier MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED");
+			abort();
+		}
+	}
+
+}
+#endif
+
 void rcu_init(void)
 {
 	int ret;
 
-	if (init_done)
-		return;
-	init_done = 1;
-	ret = membarrier(MEMBARRIER_CMD_QUERY, 0);
-	if (ret >= 0 && (ret & MEMBARRIER_CMD_SHARED)) {
-		rcu_has_sys_membarrier = 1;
+	mutex_lock(&init_lock);
+	if (!rcu_percpu_refcount++) {
+		ret = membarrier(MEMBARRIER_CMD_QUERY, 0);
+		rcu_sys_membarrier_status(ret >= 0
+				&& (ret & MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED));
+		mutex_lock(&rcu_registry_lock);
+		rcu_percpu_init();
+		mutex_unlock(&rcu_registry_lock);
 	}
-	mutex_lock(&rcu_registry_lock);
-	rcu_percpu_init();
-	mutex_unlock(&rcu_registry_lock);
+	mutex_unlock(&init_lock);
 }
 
 void rcu_destroy(void)
 {
-	free(rcu_cpus.p);
-	rcu_cpus.p = NULL;
-	init_done = 0;
+	mutex_lock(&init_lock);
+	if (!--rcu_percpu_refcount) {
+		free(rcu_cpus.p);
+		rcu_cpus.p = NULL;
+	}
+	mutex_unlock(&init_lock);
 }
 
 void rcu_percpu_before_fork(void)
