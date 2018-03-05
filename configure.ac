@@ -3,7 +3,12 @@ AC_INIT([userspace-rcu],[0.11.0-pre],[mathieu dot desnoyers at efficios dot com]
 
 # Following the numbering scheme proposed by libtool for the library version
 # http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-AC_SUBST([URCU_LIBRARY_VERSION], [6:0:0])
+m4_define([URCU_LIB_V_MAJOR], [6])
+m4_define([URCU_LIB_V_MINOR], [0])
+m4_define([URCU_LIB_V_PATCH], [0])
+
+AC_SUBST([URCU_LIBRARY_VERSION],
+	[URCU_LIB_V_MAJOR:URCU_LIB_V_MINOR:URCU_LIB_V_PATCH])
 
 AC_CONFIG_HEADERS([include/config.h include/urcu/config.h])
 AC_CONFIG_AUX_DIR([config])
@@ -27,6 +32,9 @@ AH_TEMPLATE([CONFIG_RCU_TLS], [TLS provided by the compiler.])
 AH_TEMPLATE([CONFIG_RCU_HAVE_CLOCK_GETTIME], [clock_gettime() is detected.])
 AH_TEMPLATE([CONFIG_RCU_FORCE_SYS_MEMBARRIER], [Require the operating system to support the membarrier system call for default and bulletproof flavors.])
 AH_TEMPLATE([CONFIG_RCU_DEBUG], [Enable internal debugging self-checks. Introduce performance penalty.])
+AH_TEMPLATE([URCU_LIBRARY_VERSION_MAJOR], [liburcu API major version.])
+
+AC_DEFINE([URCU_LIBRARY_VERSION_MAJOR], [URCU_LIB_V_MAJOR])
 
 # Allow requiring the operating system to support the membarrier system
 # call. Applies to default and bulletproof flavors.

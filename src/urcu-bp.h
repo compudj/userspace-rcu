@@ -41,6 +41,8 @@
 extern "C" {
 #endif
 
+#include <urcu/version.h>
+
 #include <urcu/map/urcu-bp.h>
 
 /*
@@ -149,6 +151,9 @@ extern void synchronize_rcu(void);
 extern void rcu_bp_before_fork(void);
 extern void rcu_bp_after_fork_parent(void);
 extern void rcu_bp_after_fork_child(void);
+
+urcu_symbol_version_reference(synchronize_rcu, synchronize_rcu,
+	URCU_LIBRARY_VERSION_MAJOR);
 
 /*
  * In the bulletproof version, the following functions are no-ops.

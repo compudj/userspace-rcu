@@ -30,3 +30,6 @@
 /* Enable internal debugging self-checks.
    Introduce performance penalty. */
 #undef CONFIG_RCU_DEBUG
+
+/* liburcu major version. */
+#undef URCU_LIBRARY_VERSION_MAJOR

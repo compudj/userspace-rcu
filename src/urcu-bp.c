@@ -36,6 +36,7 @@
 #include <stdbool.h>
 #include <sys/mman.h>
 
+#include "urcu/version.h"
 #include "urcu/arch.h"
 #include "urcu/wfcqueue.h"
 #include "urcu/map/urcu-bp.h"
@@ -754,6 +755,11 @@ void *rcu_cmpxchg_pointer_sym_bp(void **p, void *old, void *_new)
 }
 
 DEFINE_RCU_FLAVOR(rcu_flavor);
+
+#ifdef SHARED
+urcu_default_symbol_version(synchronize_rcu, synchronize_rcu,
+		URCU_LIBRARY_VERSION_MAJOR);
+#endif
 
 #include "urcu-call-rcu-impl.h"
 #include "urcu-defer-impl.h"

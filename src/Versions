@@ -1,0 +1,3 @@
+URCU_6 {
+  synchronize_rcu_bp;
+};
