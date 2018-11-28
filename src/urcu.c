@@ -37,19 +37,20 @@
 #include <stdbool.h>
 #include <poll.h>
 
-#include "urcu/arch.h"
-#include "urcu/wfcqueue.h"
-#include "urcu/map/urcu.h"
-#include "urcu/static/urcu.h"
-#include "urcu-pointer.h"
-#include "urcu/tls-compat.h"
+#include <urcu/arch.h>
+#include <urcu/wfcqueue.h>
+#include <urcu/map/urcu.h>
+#include <urcu/static/urcu.h>
+#include <urcu/pointer.h>
+#include <urcu/tls-compat.h>
 
 #include "urcu-die.h"
 #include "urcu-wait.h"
 
+#define URCU_API_MAP
 /* Do not #define _LGPL_SOURCE to ensure we can emit the wrapper symbols */
 #undef _LGPL_SOURCE
-#include "urcu.h"
+#include <urcu/urcu.h>
 #define _LGPL_SOURCE
 
 /*
@@ -82,10 +83,10 @@ enum membarrier_cmd {
 
 #ifdef RCU_MEMBARRIER
 static int init_done;
-static int has_sys_membarrier_private_expedited;
+static int urcu_memb_has_sys_membarrier_private_expedited;
 
 #ifndef CONFIG_RCU_FORCE_SYS_MEMBARRIER
-int rcu_has_sys_membarrier_memb;
+int urcu_memb_has_sys_membarrier;
 #endif
 
 void __attribute__((constructor)) rcu_init(void);
@@ -119,13 +120,13 @@ static pthread_mutex_t rcu_gp_lock = PTHREAD_MUTEX_INITIALIZER;
  * rcu_registry_lock may nest inside rcu_gp_lock.
  */
 static pthread_mutex_t rcu_registry_lock = PTHREAD_MUTEX_INITIALIZER;
-struct rcu_gp rcu_gp = { .ctr = RCU_GP_COUNT };
+struct urcu_gp rcu_gp = { .ctr = URCU_GP_COUNT };
 
 /*
  * Written to only by each individual reader. Read by both the reader and the
  * writers.
  */
-DEFINE_URCU_TLS(struct rcu_reader, rcu_reader);
+DEFINE_URCU_TLS(struct urcu_reader, rcu_reader);
 
 static CDS_LIST_HEAD(registry);
 
@@ -169,8 +170,8 @@ static void mutex_unlock(pthread_mutex_t *mutex)
 #ifdef RCU_MEMBARRIER
 static void smp_mb_master(void)
 {
-	if (caa_likely(rcu_has_sys_membarrier_memb)) {
-		if (membarrier(has_sys_membarrier_private_expedited ?
+	if (caa_likely(urcu_memb_has_sys_membarrier)) {
+		if (membarrier(urcu_memb_has_sys_membarrier_private_expedited ?
 				MEMBARRIER_CMD_PRIVATE_EXPEDITED :
 				MEMBARRIER_CMD_SHARED, 0))
 			urcu_die(errno);
@@ -190,7 +191,7 @@ static void smp_mb_master(void)
 #ifdef RCU_SIGNAL
 static void force_mb_all_readers(void)
 {
-	struct rcu_reader *index;
+	struct urcu_reader *index;
 
 	/*
 	 * Ask for each threads to execute a cmm_smp_mb() so we can consider the
@@ -283,7 +284,7 @@ static void wait_for_readers(struct cds_list_head *input_readers,
 			struct cds_list_head *qsreaders)
 {
 	unsigned int wait_loops = 0;
-	struct rcu_reader *index, *tmp;
+	struct urcu_reader *index, *tmp;
 #ifdef HAS_INCOHERENT_CACHES
 	unsigned int wait_gp_loops = 0;
 #endif /* HAS_INCOHERENT_CACHES */
@@ -303,18 +304,18 @@ static void wait_for_readers(struct cds_list_head *input_readers,
 		}
 
 		cds_list_for_each_entry_safe(index, tmp, input_readers, node) {
-			switch (rcu_reader_state(&index->ctr)) {
-			case RCU_READER_ACTIVE_CURRENT:
+			switch (urcu_common_reader_state(&rcu_gp, &index->ctr)) {
+			case URCU_READER_ACTIVE_CURRENT:
 				if (cur_snap_readers) {
 					cds_list_move(&index->node,
 						cur_snap_readers);
 					break;
 				}
 				/* Fall-through */
-			case RCU_READER_INACTIVE:
+			case URCU_READER_INACTIVE:
 				cds_list_move(&index->node, qsreaders);
 				break;
-			case RCU_READER_ACTIVE_OLD:
+			case URCU_READER_ACTIVE_OLD:
 				/*
 				 * Old snapshot. Leaving node in
 				 * input_readers will make us busy-loop
@@ -454,7 +455,7 @@ void synchronize_rcu(void)
 	cmm_smp_mb();
 
 	/* Switch parity: 0 -> 1, 1 -> 0 */
-	CMM_STORE_SHARED(rcu_gp.ctr, rcu_gp.ctr ^ RCU_GP_CTR_PHASE);
+	CMM_STORE_SHARED(rcu_gp.ctr, rcu_gp.ctr ^ URCU_GP_CTR_PHASE);
 
 	/*
 	 * Must commit rcu_gp.ctr update to memory before waiting for quiescent
@@ -525,7 +526,7 @@ void rcu_register_thread(void)
 {
 	URCU_TLS(rcu_reader).tid = pthread_self();
 	assert(URCU_TLS(rcu_reader).need_mb == 0);
-	assert(!(URCU_TLS(rcu_reader).ctr & RCU_GP_CTR_NEST_MASK));
+	assert(!(URCU_TLS(rcu_reader).ctr & URCU_GP_CTR_NEST_MASK));
 
 	mutex_lock(&rcu_registry_lock);
 	assert(!URCU_TLS(rcu_reader).registered);
@@ -559,7 +560,7 @@ void rcu_sys_membarrier_status(bool available)
 {
 	if (!available)
 		return;
-	rcu_has_sys_membarrier_memb = 1;
+	urcu_memb_has_sys_membarrier = 1;
 }
 #endif
 
@@ -574,7 +575,7 @@ void rcu_sys_membarrier_init(void)
 		if (mask & MEMBARRIER_CMD_PRIVATE_EXPEDITED) {
 			if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0))
 				urcu_die(errno);
-			has_sys_membarrier_private_expedited = 1;
+			urcu_memb_has_sys_membarrier_private_expedited = 1;
 			available = true;
 		} else if (mask & MEMBARRIER_CMD_SHARED) {
 			available = true;

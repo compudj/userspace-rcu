@@ -107,7 +107,7 @@ struct defer_queue {
 };
 
 /* Do not #define _LGPL_SOURCE to ensure we can emit the wrapper symbols */
-#include "urcu-defer.h"
+#include <urcu/defer.h>
 
 void __attribute__((destructor)) rcu_defer_exit(void);
 

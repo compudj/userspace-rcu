@@ -35,13 +35,13 @@
 #include <sched.h>
 
 #include "compat-getcpu.h"
-#include "urcu/wfcqueue.h"
-#include "urcu-call-rcu.h"
-#include "urcu-pointer.h"
-#include "urcu/list.h"
-#include "urcu/futex.h"
-#include "urcu/tls-compat.h"
-#include "urcu/ref.h"
+#include <urcu/wfcqueue.h>
+#include <urcu/call-rcu.h>
+#include <urcu/pointer.h>
+#include <urcu/list.h>
+#include <urcu/futex.h>
+#include <urcu/tls-compat.h>
+#include <urcu/ref.h>
 #include "urcu-die.h"
 
 #define SET_AFFINITY_CHECK_PERIOD		(1U << 8)	/* 256 */
