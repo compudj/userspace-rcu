@@ -38,7 +38,6 @@
 
 #include "compat-getcpu.h"
 #include "urcu/wfcqueue.h"
-#include "urcu-call-rcu.h"
 #include "urcu-pointer.h"
 #include "urcu/list.h"
 #include "urcu/futex.h"
@@ -56,10 +55,9 @@
 struct urcu_workqueue {
 	/*
 	 * We do not align head on a different cache-line than tail
-	 * mainly because call_rcu callback-invocation threads use
-	 * batching ("splice") to get an entire list of callbacks, which
-	 * effectively empties the queue, and requires to touch the tail
-	 * anyway.
+	 * mainly because workqueue threads use batching ("splice") to
+	 * get an entire list of callbacks, which effectively empties
+	 * the queue, and requires to touch the tail anyway.
 	 */
 	struct cds_wfcq_tail cbs_tail;
 	struct cds_wfcq_head cbs_head;
@@ -245,7 +243,7 @@ static void *workqueue_thread(void *arg)
 				uatomic_dec(&workqueue->futex);
 				/*
 				 * Decrement futex before reading
-				 * call_rcu list.
+				 * urcu_work list.
 				 */
 				cmm_smp_mb();
 			} else {
@@ -259,7 +257,7 @@ static void *workqueue_thread(void *arg)
 	}
 	if (!rt) {
 		/*
-		 * Read call_rcu list before write futex.
+		 * Read urcu_work list before write futex.
 		 */
 		cmm_smp_mb();
 		uatomic_set(&workqueue->futex, 0);
