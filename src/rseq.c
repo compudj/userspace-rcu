@@ -23,6 +23,8 @@
 #include <syscall.h>
 #include <assert.h>
 #include <signal.h>
+#include <stdint.h>
+#include <limits.h>
 #include <urcu/compiler.h>
 
 #include <urcu/rseq.h>

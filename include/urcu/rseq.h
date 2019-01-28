@@ -25,7 +25,7 @@
 #ifndef URCU_RSEQ_H
 #define URCU_RSEQ_H
 
-#include <rseq.h>
+#include <linux/rseq.h>
 
 /*
  * Register rseq for the current thread. This needs to be called once
