@@ -27,48 +27,73 @@
 
 #include <urcu/rseq.h>
 
-/* Own state, not shared with other libs. */
-//TODO: TLS IE
-static __thread int rseq_registered;
+enum rseq_register_state {
+	RSEQ_REGISTER_ALLOWED = 0,
+	RSEQ_REGISTER_NESTED = 1,
+	RSEQ_REGISTER_EXITING = 2,
+};
+
+struct rseq_lib_abi {
+	uint32_t register_state;	/* enum rseq_register_state */
+	uint32_t refcount;
+};
+
+__thread volatile struct rseq __rseq_abi = {
+	.cpu_id = RSEQ_CPU_ID_UNINITIALIZED,
+};
+
+__thread volatile struct rseq_lib_abi __rseq_lib_abi;
 
 static pthread_key_t rseq_key;
 
-static void signal_off_save(sigset_t *oldset)
+static int sys_rseq(volatile struct rseq *rseq_abi, uint32_t rseq_len,
+		    int flags, uint32_t sig)
 {
-	sigset_t set;
-	int ret;
-
-	sigfillset(&set);
-	ret = pthread_sigmask(SIG_BLOCK, &set, oldset);
-	if (ret)
-		abort();
+	return syscall(__NR_rseq, rseq_abi, rseq_len, flags, sig);
 }
 
-static void signal_restore(sigset_t oldset)
+static int rseq_register_current_thread(void)
 {
-	int ret;
+	int rc, ret = 0;
 
-	ret = pthread_sigmask(SIG_SETMASK, &oldset, NULL);
-	if (ret)
-		abort();
+	/*
+	 * Nested signal handlers need to check whether registration is
+	 * allowed.
+	 */
+	if (__rseq_lib_abi.register_state != RSEQ_REGISTER_ALLOWED)
+		return -1;
+	__rseq_lib_abi.register_state = RSEQ_REGISTER_NESTED;
+	if (__rseq_lib_abi.refcount == UINT_MAX) {
+		ret = -1;
+		goto end;
+	}
+	if (__rseq_lib_abi.refcount++)
+		goto end;
+	rc = sys_rseq(&__rseq_abi, sizeof(struct rseq), 0, RSEQ_SIG);
+	if (!rc) {
+		assert(rseq_current_cpu_raw() >= 0);
+		goto end;
+	}
+	if (errno != EBUSY)
+		__rseq_abi.cpu_id = RSEQ_CPU_ID_REGISTRATION_FAILED;
+	ret = -1;
+	__rseq_lib_abi.refcount--;
+end:
+	__rseq_lib_abi.register_state = RSEQ_REGISTER_ALLOWED;
+	return ret;
 }
 
 static int urcu_rseq_unregister_current_thread(void)
 {
-	sigset_t oldset;
 	int rc, ret = 0;
 
-	signal_off_save(&oldset);
-	if (rseq_registered) {
-		rc = rseq_unregister_current_thread();
-		if (rc) {
-			ret = -1;
-			goto end;
-		}
-		rseq_registered = 0;
+	rc = rseq_unregister_current_thread();
+	if (rc) {
+		ret = -1;
+		goto end;
 	}
+	rseq_registered = 0;
 end:
-	signal_restore(oldset);
 	return ret;
 }
 
@@ -78,28 +103,45 @@ static void urcu_destroy_rseq_key(void *key)
 		abort();
 }
 
-int urcu_rseq_register_current_thread(void)
+static int rseq_unregister_current_thread(void)
 {
-	sigset_t oldset;
 	int rc, ret = 0;
 
-	signal_off_save(&oldset);
-	if (caa_likely(!rseq_registered)) {
-		rc = rseq_register_current_thread();
-		if (rc) {
-			ret = -1;
-			goto end;
-		}
-		rseq_registered = 1;
-		/*
-		 * Register destroy notifier. Pointer needs to
-		 * be non-NULL.
-		 */
-		if (pthread_setspecific(rseq_key, (void *)0x1))
-			abort();
+	if (__rseq_lib_abi.register_state != RSEQ_REGISTER_ALLOWED)
+		return -1;
+	__rseq_lib_abi.register_state = RSEQ_REGISTER_NESTED;
+	if (!__rseq_lib_abi.refcount) {
+		ret = -1;
+		goto end;
 	}
+	if (--__rseq_lib_abi.refcount)
+		goto end;
+	rc = sys_rseq(&__rseq_abi, sizeof(struct rseq),
+		      RSEQ_FLAG_UNREGISTER, RSEQ_SIG);
+	if (!rc)
+		goto end;
+	ret = -1;
 end:
-	signal_restore(oldset);
+	__rseq_lib_abi.register_state = RSEQ_REGISTER_ALLOWED;
+	return ret;
+}
+
+int urcu_rseq_register_current_thread(void)
+{
+	int rc, ret = 0;
+
+	rc = rseq_register_current_thread();
+	if (rc) {
+		ret = -1;
+		goto end;
+	}
+	/*
+	 * Register destroy notifier. Pointer needs to
+	 * be non-NULL.
+	 */
+	if (pthread_setspecific(rseq_key, (void *)0x1))
+		abort();
+end:
 	return ret;
 }
 
