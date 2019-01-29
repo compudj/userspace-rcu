@@ -138,7 +138,7 @@ retry:
 	cpu = rseq_cpu_start();
 	ret = rseq_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].lock,
 			1, cpu);
-	if (likely(!ret)) {
+	if (caa_likely(!ret)) {
 		cmm_barrier();
 		return;
 	}
@@ -177,7 +177,7 @@ retry:
 	ret = rseq_addv((intptr_t *)&rcu_cpus.p[cpu].count[period].unlock,
 			1, cpu);
 	rseq_prepare_unload();
-	if (likely(!ret)) {
+	if (caa_likely(!ret)) {
 		cmm_barrier();
 		return;
 	}

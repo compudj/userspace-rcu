@@ -25,6 +25,7 @@
 #ifndef URCU_RSEQ_H
 #define URCU_RSEQ_H
 
+#include <rseq.h>
 #include <linux/rseq.h>
 
 /*
