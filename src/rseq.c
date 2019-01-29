@@ -31,7 +31,7 @@
 
 enum rseq_register_state {
 	RSEQ_REGISTER_ALLOWED = 0,
-	RSEQ_REGISTER_NESTED = 1,
+	RSEQ_REGISTER_ONGOING = 1,
 	RSEQ_REGISTER_EXITING = 2,
 };
 
@@ -64,7 +64,7 @@ static int rseq_register_current_thread(void)
 	 */
 	if (__rseq_lib_abi.register_state != RSEQ_REGISTER_ALLOWED)
 		return -1;
-	__rseq_lib_abi.register_state = RSEQ_REGISTER_NESTED;
+	__rseq_lib_abi.register_state = RSEQ_REGISTER_ONGOING;
 	if (__rseq_lib_abi.refcount == UINT_MAX) {
 		ret = -1;
 		goto end;
@@ -111,7 +111,7 @@ static int rseq_unregister_current_thread(void)
 
 	if (__rseq_lib_abi.register_state != RSEQ_REGISTER_ALLOWED)
 		return -1;
-	__rseq_lib_abi.register_state = RSEQ_REGISTER_NESTED;
+	__rseq_lib_abi.register_state = RSEQ_REGISTER_ONGOING;
 	if (!__rseq_lib_abi.refcount) {
 		ret = -1;
 		goto end;
