@@ -210,4 +210,32 @@ void urcu_wake_all_waiters(struct urcu_waiters *waiters)
 	}
 }
 
+/*
+ * Returns false if the waitqueue is empty, true if a waiter has been
+ * awakened or was in the waitqueue and already running.
+ *
+ * For non-NULL @state: If a the first waiter was found to be the last
+ * item in the waitqueue, "state" is set to CDS_WFCQ_STATE_LAST, else it
+ * is zeroed. This is useful to know whether other waiters are in the
+ * waitqueue after performing a wakeup.
+ */
+static inline
+bool urcu_wake_one(struct urcu_wait_queue *queue, int *state)
+{
+	struct cds_wfcq_node *first;
+	struct urcu_wait_node *wait_node;
+
+	first = cds_wfcq_dequeue_with_state_blocking(&queue->head,
+						     &queue->tail,
+						     state);
+	if (!first)
+		return false;
+	wait_node = caa_container_of(first, struct urcu_wait_node, node);
+	/* Don't wake already running threads */
+	if (wait_node->state & URCU_WAIT_RUNNING)
+		return true;
+	urcu_adaptative_wake_up(wait_node);
+	return true;
+}
+
 #endif /* _URCU_WAIT_H */
