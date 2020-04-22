@@ -7,7 +7,7 @@ if USE_CYGWIN
 AM_LDFLAGS+=-no-undefined
 endif
 
-dist_noinst_HEADERS = urcu-die.h urcu-wait.h compat-getcpu.h \
+dist_noinst_HEADERS = urcu-die.h compat-getcpu.h \
 	compat-rand.h urcu-utils.h
 
 if COMPAT_ARCH

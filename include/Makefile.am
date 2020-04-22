@@ -21,7 +21,8 @@ nobase_dist_include_HEADERS = urcu/compiler.h urcu/hlist.h urcu/list.h \
 		urcu/pointer.h urcu/urcu-qsbr.h urcu/flavor.h \
 		urcu/urcu-mb.h urcu/urcu-memb.h urcu/urcu-signal.h \
 		urcu.h urcu-bp.h urcu-call-rcu.h urcu-defer.h \
-		urcu-pointer.h urcu-qsbr.h urcu-flavor.h
+		urcu-pointer.h urcu-qsbr.h urcu-flavor.h \
+		urcu/wait.h
 
 # Don't distribute generated headers
 nobase_nodist_include_HEADERS = urcu/arch.h urcu/uatomic.h urcu/config.h
