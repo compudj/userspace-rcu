@@ -270,7 +270,7 @@ void urcu_qsbr_synchronize_rcu(void)
 	/*
 	 * Move all waiters into our local queue.
 	 */
-	urcu_move_waiters(&waiters, &gp_waiters);
+	urcu_move_waiters(&waiters, &gp_waiters, false);
 
 	mutex_lock(&rcu_registry_lock);
 
@@ -383,7 +383,7 @@ void urcu_qsbr_synchronize_rcu(void)
 	/*
 	 * Move all waiters into our local queue.
 	 */
-	urcu_move_waiters(&waiters, &gp_waiters);
+	urcu_move_waiters(&waiters, &gp_waiters, false);
 
 	mutex_lock(&rcu_registry_lock);
 

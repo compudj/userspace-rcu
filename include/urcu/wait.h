@@ -79,7 +79,7 @@ struct urcu_wait_queue {
 	struct urcu_wait_queue name = URCU_WAIT_QUEUE_INIT(name)
 
 struct urcu_waiters {
-	struct cds_wfcq_head head;
+	struct __cds_wfcq_head head;
 	struct cds_wfcq_tail tail;
 };
 
@@ -98,14 +98,22 @@ bool urcu_wait_add(struct urcu_wait_queue *queue,
 /*
  * Atomically move all waiters from wait queue into our local struct
  * urcu_waiters.
+ * Should be done by a single "waker" thread, or protected against
+ * concurrent wakers by a mutex. If @concurrent_wakers is true, protect
+ * dequeue with mutex.
  */
 static inline
 void urcu_move_waiters(struct urcu_waiters *waiters,
-		struct urcu_wait_queue *queue)
+		struct urcu_wait_queue *queue,
+		bool concurrent_wakers)
 {
-	cds_wfcq_init(&waiters->head, &waiters->tail);
-	(void) cds_wfcq_splice_blocking(&waiters->head, &waiters->tail,
+	__cds_wfcq_init(&waiters->head, &waiters->tail);
+	if (concurrent_wakers)
+		cds_wfcq_dequeue_lock(&queue->head, &queue->tail);
+	(void) __cds_wfcq_splice_blocking(&waiters->head, &waiters->tail,
 			&queue->head, &queue->tail);
+	if (concurrent_wakers)
+		cds_wfcq_dequeue_unlock(&queue->head, &queue->tail);
 }
 
 static inline
@@ -193,12 +201,17 @@ skip_futex_wait:
 	assert(uatomic_read(&wait->state) & URCU_WAIT_TEARDOWN);
 }
 
+/*
+ * Works on the local list of waiters, no need to have mutual exclusion
+ * against other wakers working on the struct urcu_wait_queue
+ * considering that this waiter list is local.
+ */
 static inline
 void urcu_wake_all_waiters(struct urcu_waiters *waiters)
 {
 	struct cds_wfcq_node *iter, *iter_n;
 
-	/* Wake all waiters in our stack head */
+	/* Wake all waiters in our local queue */
 	__cds_wfcq_for_each_blocking_safe(&waiters->head, &waiters->tail, iter, iter_n) {
 		struct urcu_wait_node *wait_node =
 			caa_container_of(iter, struct urcu_wait_node, node);
@@ -218,16 +231,25 @@ void urcu_wake_all_waiters(struct urcu_waiters *waiters)
  * item in the waitqueue, "state" is set to CDS_WFCQ_STATE_LAST, else it
  * is zeroed. This is useful to know whether other waiters are in the
  * waitqueue after performing a wakeup.
+ *
+ * Should be done by a single "waker" thread, or protected against
+ * concurrent wakers by a mutex. If @concurrent_wakers is true, protect
+ * dequeue with mutex.
  */
 static inline
-bool urcu_wake_one(struct urcu_wait_queue *queue, int *state)
+bool urcu_wake_one(struct urcu_wait_queue *queue, int *state,
+		bool concurrent_wakers)
 {
 	struct cds_wfcq_node *first;
 	struct urcu_wait_node *wait_node;
 
-	first = cds_wfcq_dequeue_with_state_blocking(&queue->head,
+	if (concurrent_wakers)
+		cds_wfcq_dequeue_lock(&queue->head, &queue->tail);
+	first = __cds_wfcq_dequeue_with_state_blocking(&queue->head,
 						     &queue->tail,
 						     state);
+	if (concurrent_wakers)
+		cds_wfcq_dequeue_unlock(&queue->head, &queue->tail);
 	if (!first)
 		return false;
 	wait_node = caa_container_of(first, struct urcu_wait_node, node);
