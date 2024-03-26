@@ -17,6 +17,7 @@ noinst_PROGRAMS = \
 	get_max_cpuid_from_sysfs_cxx \
 	test_arch \
 	test_arch_cxx \
+	test_false_sharing \
 	test_get_max_cpuid_from_mask \
 	test_get_max_cpuid_from_mask_cxx \
 	test_get_possible_cpus_array_len \
@@ -45,6 +46,7 @@ dist_noinst_SCRIPTS = \
 TESTS = \
 	test_arch \
 	test_arch_cxx \
+	test_false_sharing \
 	test_get_cpu_mask_from_sysfs \
 	test_get_cpu_mask_from_sysfs_cxx \
 	test_get_max_cpuid_from_mask \
@@ -82,6 +84,9 @@ get_cpu_mask_from_sysfs_cxx_SOURCES = get_cpu_mask_from_sysfs_cxx.cpp
 get_cpu_mask_from_sysfs_SOURCES = get_cpu_mask_from_sysfs.c
 get_max_cpuid_from_sysfs_cxx_SOURCES = get_max_cpuid_from_sysfs_cxx.cpp
 get_max_cpuid_from_sysfs_SOURCES = get_max_cpuid_from_sysfs.c
+
+test_false_sharing_SOURCES = test_false_sharing.c
+test_false_sharing_LDADD = $(URCU_COMMON_LIB) $(TAP_LIB)
 
 test_arch_SOURCES = test_arch.c
 test_arch_LDADD = $(URCU_COMMON_LIB) $(TAP_LIB)
