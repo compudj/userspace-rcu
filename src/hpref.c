@@ -8,8 +8,22 @@
 
 #define _LGPL_SOURCE
 #include <urcu/hpref.h>
+#include <sys/syscall.h>	/* Definition of SYS_* constants */
+#include <unistd.h>
+#include "urcu-die.h"
 #include <rseq/mempool.h>	/* Per-CPU memory */
 #include <pthread.h>
+
+#define membarrier(...)		syscall(__NR_membarrier, __VA_ARGS__)
+
+enum membarrier_cmd {
+	MEMBARRIER_CMD_QUERY				= 0,
+	MEMBARRIER_CMD_SHARED				= (1 << 0),
+	/* reserved for MEMBARRIER_CMD_SHARED_EXPEDITED (1 << 1) */
+	/* reserved for MEMBARRIER_CMD_PRIVATE (1 << 2) */
+	MEMBARRIER_CMD_PRIVATE_EXPEDITED		= (1 << 3),
+	MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED	= (1 << 4),
+};
 
 static struct rseq_mempool *mempool;
 static pthread_mutex_t hpref_sync_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -188,8 +202,9 @@ void hpref_scan_wait(void *addr, size_t length, unsigned int wait_period)
  */
 void hpref_synchronize(void *addr, size_t length)
 {
-	/* Memory ordering: Store A before Load B. */
-	cmm_smp_mb();
+	/* Memory ordering: Store A before Load B. Pairs with cmm_barrier(). */
+	if (membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0))
+		urcu_die(errno);
 	pthread_mutex_lock(&hpref_sync_lock);
 	if (addr && length <= sizeof(struct hpref_node)) {
 		/*
@@ -236,6 +251,8 @@ void hpref_synchronize_put(struct hpref_node *node)
 static __attribute__((constructor))
 void hpref_init(void)
 {
+	if (membarrier(MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0))
+		urcu_die(errno);
 	mempool = rseq_mempool_create("hpref", sizeof(struct hpref_percpu_slots), NULL);
 	if (!mempool)
 		abort();

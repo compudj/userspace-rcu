@@ -214,9 +214,9 @@ retry:
 		goto retry;
 	}
 
-	/* Memory ordering: Store B before Load A. */
-	/* Memory ordering: Store B before Load C. */
-	cmm_smp_mb();
+	/* Memory ordering: Store B before Load A. Pairs with membarrier. */
+	/* Memory ordering: Store B before Load C. Pairs with membarrier. */
+	cmm_barrier();
 
 	/* Increase scan depth if needed. */
 	scan_depth_p = hpref_get_cpu_slots_scan_depth(cpu_slots);
