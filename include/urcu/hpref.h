@@ -139,8 +139,8 @@ retry:
 		caa_cpu_relax();
 		goto retry;
 	}
-	/* Memory ordering: Store B before Load A. */
-	cmm_smp_mb();
+	/* Memory ordering: Store B before Load A. Pairs with membarrier. */
+	cmm_barrier();
 	node2 = uatomic_load(node_p, CMM_RELAXED);	/* Load A */
 	if (node != node2) {
 		uatomic_store(&slot->node, NULL, CMM_RELAXED);
