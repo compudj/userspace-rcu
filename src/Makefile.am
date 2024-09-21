@@ -19,7 +19,8 @@ RCULFHASH = rculfhash.c rculfhash-mm-order.c rculfhash-mm-chunk.c \
 lib_LTLIBRARIES = liburcu-common.la \
 		liburcu.la liburcu-qsbr.la \
 		liburcu-mb.la liburcu-bp.la \
-		liburcu-memb.la liburcu-cds.la
+		liburcu-memb.la liburcu-cds.la \
+		liburcu-hpref.la
 
 #
 # liburcu-common contains wait-free queues (needed by call_rcu) as well
@@ -49,6 +50,9 @@ liburcu_bp_la_LIBADD = liburcu-common.la
 liburcu_cds_la_SOURCES = rculfqueue.c rculfstack.c lfstack.c \
 	workqueue.c workqueue.h $(RCULFHASH) $(COMPAT)
 liburcu_cds_la_LIBADD = liburcu-common.la
+
+liburcu_hpref_la_SOURCES = hpref.c
+liburcu_hpref_la_LIBADD = -lrseq
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = liburcu-cds.pc liburcu.pc liburcu-bp.pc liburcu-qsbr.pc \
