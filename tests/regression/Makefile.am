@@ -21,7 +21,8 @@ noinst_PROGRAMS = \
 	rcutorture_urcu_bp \
 	rcutorture_urcu_bp_cxx \
 	rcutorture_urcu_qsbr \
-	rcutorture_urcu_qsbr_cxx
+	rcutorture_urcu_qsbr_cxx \
+	test_hpref
 
 noinst_HEADERS = rcutorture.h
 
@@ -31,7 +32,11 @@ URCU_QSBR_LIB=$(top_builddir)/src/liburcu-qsbr.la
 URCU_MB_LIB=$(top_builddir)/src/liburcu-mb.la
 URCU_BP_LIB=$(top_builddir)/src/liburcu-bp.la
 URCU_CDS_LIB=$(top_builddir)/src/liburcu-cds.la
+URCU_HPREF_LIB=$(top_builddir)/src/liburcu-hpref.la
 TAP_LIB=$(top_builddir)/tests/utils/libtap.a
+
+test_hpref_SOURCES = test_hpref.c
+test_hpref_LDADD = $(URCU_HPREF_LIB) -lrseq
 
 test_urcu_fork_tap_SOURCES = test_urcu_fork.c
 test_urcu_fork_tap_LDADD = $(URCU_LIB) $(TAP_LIB)
