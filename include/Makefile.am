@@ -33,6 +33,7 @@ nobase_include_HEADERS = \
 	urcu/hlist.h \
 	urcu/lfstack.h \
 	urcu/list.h \
+	urcu/hplist.h \
 	urcu/map/clear.h \
 	urcu/map/urcu-bp.h \
 	urcu/map/urcu.h \
