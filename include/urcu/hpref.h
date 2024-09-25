@@ -53,15 +53,34 @@ struct hpref_slot {
 	struct hpref_node *node;
 };
 
-#define NR_PERCPU_SLOTS_BITS	3
-#define HPREF_NR_PERCPU_SLOTS	(1U << NR_PERCPU_SLOTS_BITS)
 /*
- * The emergency slot is only used for short critical sections
- * (would be preempt off in when porting this code to the kernel): only
- * to ensure we have a free slot for taking a reference count as
- * fallback.
+ * Allocate 64 slots per CPU. It fits within 256 bytes on 32-bit, 512
+ * bytes on 64-bit.
+ * The scan depth dynamically ajusts the depth of the hazard pointer
+ * scan based on reader slots usage.
+ *
+ * The layout of the per-CPU slots area is as follows:
+ * - slots (64 * sizeof(struct hpref_slot))
+ *  - The first slot is reserved to hold the scan_depth value, so the
+ *    scan_depth is located on the same cache line as the first slots.
+ *  - The last slot is an emergency reserve.
  */
-#define HPREF_EMERGENCY_SLOT	(HPREF_NR_PERCPU_SLOTS - 1)
+#define HPREF_NR_PERCPU_SLOTS_BITS	6
+#define HPREF_NR_PERCPU_SLOTS		(1U << HPREF_NR_PERCPU_SLOTS_BITS)
+/* Scan skips the first slot (scan_depth). */
+#define HPREF_FIRST_SCAN_SLOT		1
+/*
+ * The emergency reserve slot is only used internally for short critical
+ * sections (would be preempt off in when porting this code to the
+ * kernel). It ensures there is a free slot to guarantee hpref_node
+ * existence to immediately promote to a reference count as fallback.
+ */
+#define HPREF_EMERGENCY_SLOT		(HPREF_NR_PERCPU_SLOTS - 1)
+
+#define HPREF_DEPTH_STRIDE_BITS		3
+#define HPREF_DEPTH_STRIDE		(1U << HPREF_DEPTH_STRIDE_BITS)
+#define HPREF_SHRINK_HYSTERESIS		HPREF_DEPTH_STRIDE
+#define HPREF_ALIGN(depth, align)	((depth) + (align - 1)) & (~(align - 1));
 
 struct hpref_percpu_slots {
 	struct hpref_slot slots[HPREF_NR_PERCPU_SLOTS];
@@ -136,6 +155,12 @@ void hpref_promote_hp_to_ref(struct hpref_ctx *ctx)
 	ctx->type = HPREF_TYPE_REF;
 }
 
+static inline
+unsigned long *hpref_get_cpu_slots_scan_depth(struct hpref_percpu_slots *cpu_slots)
+{
+	return (unsigned long *) &cpu_slots->slots[0];
+}
+
 /*
  * hpref_hp_get: Obtain a reference to a stable object, protected either
  *               by hazard pointer (fast-path) or using reference
@@ -148,6 +173,7 @@ int hpref_hp_get(struct hpref_node **node_p, struct hpref_ctx *ctx)
 	int cpu = rseq_current_cpu_raw(), ret;
 	struct hpref_percpu_slots *cpu_slots = rseq_percpu_ptr(hpref_percpu_slots, cpu);
 	unsigned int period = uatomic_load(&hpref_period, CMM_RELAXED);
+	unsigned long *scan_depth_p, scan_depth;
 	struct hpref_node *node, *node2;
 	struct hpref_slot *slot;
 	unsigned int slot_nr;
@@ -156,7 +182,9 @@ int hpref_hp_get(struct hpref_node **node_p, struct hpref_ctx *ctx)
 	if (!node)
 		return 0;
 retry:
-	for (slot_nr = 0; slot_nr < HPREF_NR_PERCPU_SLOTS; /* inc in loop. */) {
+	for (slot_nr = HPREF_FIRST_SCAN_SLOT;
+			slot_nr < HPREF_NR_PERCPU_SLOTS;
+			/* inc in loop. */) {
 		slot = &cpu_slots->slots[slot_nr];
 		/* Use rseq to try setting slot hp. Store B. */
 		ret = rseq_load_cbne_store__ptr(RSEQ_MO_RELAXED, RSEQ_PERCPU_CPU_ID,
@@ -183,8 +211,26 @@ retry:
 		}
 		goto retry;
 	}
+
 	/* Memory ordering: Store B before Load A. */
+	/* Memory ordering: Store B before Load C. */
 	cmm_smp_mb();
+
+	/* Increase scan depth if needed. */
+	scan_depth_p = hpref_get_cpu_slots_scan_depth(cpu_slots);
+	scan_depth = uatomic_load(scan_depth_p, CMM_RELAXED);	/* Load C */
+	if (caa_unlikely(scan_depth < slot_nr + 1)) {
+		unsigned long old_depth, new_depth = HPREF_ALIGN(slot_nr + 1, HPREF_DEPTH_STRIDE);
+
+		for (;;) {
+			/* Memory ordering: Store C before Load A ordering provided by cmpxchg. */
+			old_depth = uatomic_cmpxchg(scan_depth_p, scan_depth, new_depth);	/* Store C */
+			if (old_depth == scan_depth || old_depth >= new_depth)
+				break;
+			scan_depth = old_depth;
+		}
+	}
+
 	node2 = rcu_dereference(*node_p);	/* Load A */
 	/*
 	 * If @node_p content has changed since the first load,

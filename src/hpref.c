@@ -14,7 +14,66 @@
 static struct rseq_mempool *mempool;
 static pthread_mutex_t hpref_sync_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/*
+ * Memory Ordering
+ *
+ * The variables accessed by the following memory operations are
+ * categorized as:
+ *
+ *   A: Hazard pointers (HP).
+ *   B: Hazard pointer slots.
+ *   C: Per-CPU scan depth.
+ *
+ * A Dekker memory ordering [1] provides the hazard pointer existence
+ * guarantee by ordering A vs B.
+ *
+ * The scan_depth is updated by both readers and HP synchronize. The
+ * readers increase its value to cover the used slots range. HP
+ * synchronize decreases its value to shrink the scan depth when it
+ * encounters NULL pointers at the tail of the scanned slots range. This
+ * value is increased/decreased by stride of 8 (aiming for cache line
+ * size), with an hysteresis of 8 preventing the HP synchronize to
+ * shrink the depth too aggressively.
+ *
+ * The scan depth is ordered with respect to slots with the following
+ * two additional Dekker orderings: B vs C and C vs A. The B vs C Dekker
+ * [2] orders decrease of the scan_depth by synchronize, whereas the
+ * C vs A [3] Dekker orders increase of the scan_depth by readers.
+ *
+ * * Readers
+ *   - Load node ptr
+ *   - Store pointer to slot N          (Store B)
+ *   - Memory barrier (smp_mb())        (Order Store B before Load A [1])
+ *                                      (Order Store B before Load C [2])
+ *   - Load scan_depth                  (Load C)
+ *     - If scan_depth does not cover N, increase it to the
+ *       next multiple of 8 >= N with a cmpxchg until its
+ *       value covers N.                (Store C)
+ *       - cmpxchg memory barrier       (Order Store C before Load A [3])
+ *    - Re-load node ptr                (Load A)
+ *
+ * * HP synchronize (single synchronize protected by locking)
+ *   - Caller unpublish A               (Store A)
+ *   - Memory barrier (smp_mb())        (Order Store A before load C [3])
+ *                                      (Order Store A before load B [1])
+ -   - Load scan_depth                  (Load C)
+ *   - Iterate on all slots up to scan_depth, noting the
+ *     position (pos) of the last node that was encountered as
+ *     non-NULL.                        (Load B)
+ *   - If pos < scan_depth - 8, update scan_depth to the next
+ *     multiple of 8 >= pos (new_depth) with an xchg. The old
+ *     value returned by xchg is old_depth.
+ *                                      (Store C)
+ *   - Memory barrier (smp_mb())        (Order Store C before Load B [2])
+ *   - Iterate on all slots between new_depth and old_depth.
+ *     Load each slot.                  (Load B)
+ *     Note the position of the last non-NULL slot (if any).
+ *   - Increase the scan_depth to the next multiple of 8 >= last
+ *     non-NULL slot position with cmpxchg until its value
+ *     covers the last non-NULL slot.
+ */
 struct hpref_percpu_slots *hpref_percpu_slots;
+
 /*
  * The hpref period flips between 0 and 1 to guarantee forward
  * progress of hpref_synchronize(NULL) by preventing new readers
@@ -39,14 +98,19 @@ void hpref_scan_wait(struct hpref_node *node, unsigned int wait_period)
 	/* Scan all CPUs slots. */
 	for (cpu = 0; cpu < nr_cpus; cpu++) {
 		struct hpref_percpu_slots *cpu_slots = rseq_percpu_ptr(hpref_percpu_slots, cpu);
-		struct hpref_slot *slot;
-		unsigned int i;
+		unsigned long *scan_depth_p, scan_depth;
+		unsigned long last_used_pos = 0, i;
 
-		for (i = 0; i < HPREF_NR_PERCPU_SLOTS; i++) {
-			slot = &cpu_slots->slots[i];
+		scan_depth_p = hpref_get_cpu_slots_scan_depth(cpu_slots);
+		scan_depth = uatomic_load(scan_depth_p, CMM_RELAXED);
+		for (i = HPREF_FIRST_SCAN_SLOT; i < scan_depth; i++) {
+			struct hpref_slot *slot = &cpu_slots->slots[i];
+
 			if (!node) {	/* Wait for all HP. */
 				struct hpref_node *slot_node = uatomic_load(&slot->node, CMM_ACQUIRE);
 
+				if (slot_node)
+					last_used_pos = i;
 				/*
 				 * Wait until either NULL or a slot node pointer value
 				 * transition is observed for the current wait period.
@@ -60,8 +124,50 @@ void hpref_scan_wait(struct hpref_node *node, unsigned int wait_period)
 					caa_cpu_relax();
 			} else {	/* Wait for a single HP value. */
 				/* Busy-wait if node is found. For any period. */
-				while (((uintptr_t) uatomic_load(&slot->node, CMM_ACQUIRE) & ~1UL) == (uintptr_t) node)	/* Load B */
+				struct hpref_node *slot_node = uatomic_load(&slot->node, CMM_ACQUIRE);	/* Load B */
+
+				if (slot_node)
+					last_used_pos = i;
+				while (((uintptr_t) slot_node & ~1UL) == (uintptr_t) node) {	/* Load B */
 					caa_cpu_relax();
+					slot_node = uatomic_load(&slot->node, CMM_ACQUIRE);
+				}
+			}
+		}
+		/* Decrease the scan depth if needed. */
+		if (last_used_pos + HPREF_SHRINK_HYSTERESIS < scan_depth) {
+			unsigned long old_depth, new_depth = HPREF_ALIGN(last_used_pos + 1, HPREF_DEPTH_STRIDE);
+
+			/* Tentatively reduce the scan depth. */
+			old_depth = uatomic_xchg(scan_depth_p, new_depth);	/* Store C */
+			/* Memory ordering: Store C before Load B. Pairs with cmm_barrier(). */
+			if (membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0))
+				urcu_die(errno);
+			/*
+			 * Scan the removed range to validate whether it contains any
+			 * non-NULL slots.
+			 */
+			last_used_pos = 0;
+			for (i = new_depth - 1; i < old_depth; i++) {
+				struct hpref_slot *slot = &cpu_slots->slots[i];
+				struct hpref_node *slot_node = uatomic_load(&slot->node, CMM_ACQUIRE); /* Load B */
+
+				if (slot_node)
+					last_used_pos = i;
+			}
+			/*
+			 * If non-NULL slots are found in the range removed from scan depth,
+			 * increase the scan depth to cover those slots.
+			 */
+			if (new_depth < last_used_pos + 1) {
+				new_depth = HPREF_ALIGN(last_used_pos + 1, HPREF_DEPTH_STRIDE);
+
+				for (;;) {
+					old_depth = uatomic_cmpxchg(scan_depth_p, scan_depth, new_depth);
+					if (old_depth == scan_depth || old_depth >= new_depth)
+						break;
+					scan_depth = old_depth;
+				}
 			}
 		}
 	}
@@ -82,6 +188,7 @@ void hpref_synchronize(struct hpref_node *node)
 {
 	/* Memory ordering: Store A before Load B. */
 	cmm_smp_mb();
+	pthread_mutex_lock(&hpref_sync_lock);
 	if (node) {
 		/*
 		 * Waiting for a single node can be done by scanning
@@ -96,13 +203,12 @@ void hpref_synchronize(struct hpref_node *node)
 		 * of readers storing the same pointer value into the
 		 * same slot to prevent forward progress of synchronize.
 		 */
-		pthread_mutex_lock(&hpref_sync_lock);
 		wait_period = hpref_period ^ 1;
 		hpref_scan_wait(NULL, wait_period);
 		uatomic_store(&hpref_period, wait_period, CMM_RELAXED);
 		hpref_scan_wait(NULL, wait_period ^ 1);
-		pthread_mutex_unlock(&hpref_sync_lock);
 	}
+	pthread_mutex_unlock(&hpref_sync_lock);
 }
 
 void hpref_node_put(struct hpref_node *node)
