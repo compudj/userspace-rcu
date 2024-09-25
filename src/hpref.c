@@ -91,7 +91,7 @@ void hpref_release(struct urcu_ref *ref)
 }
 
 static
-void hpref_scan_wait(struct hpref_node *node, unsigned int wait_period)
+void hpref_scan_wait(void *addr, size_t length, unsigned int wait_period)
 {
 	int nr_cpus = rseq_get_max_nr_cpus(), cpu;
 
@@ -106,7 +106,7 @@ void hpref_scan_wait(struct hpref_node *node, unsigned int wait_period)
 		for (i = HPREF_FIRST_SCAN_SLOT; i < scan_depth; i++) {
 			struct hpref_slot *slot = &cpu_slots->slots[i];
 
-			if (!node) {	/* Wait for all HP. */
+			if (!addr || length > sizeof(struct hpref_node)) {
 				struct hpref_node *slot_node = uatomic_load(&slot->node, CMM_ACQUIRE);
 
 				if (slot_node)
@@ -128,7 +128,7 @@ void hpref_scan_wait(struct hpref_node *node, unsigned int wait_period)
 
 				if (slot_node)
 					last_used_pos = i;
-				while (((uintptr_t) slot_node & ~1UL) == (uintptr_t) node) {	/* Load B */
+				while (((uintptr_t) slot_node & ~1UL) == (uintptr_t) addr) {	/* Load B */
 					caa_cpu_relax();
 					slot_node = uatomic_load(&slot->node, CMM_ACQUIRE);
 				}
@@ -177,24 +177,26 @@ void hpref_scan_wait(struct hpref_node *node, unsigned int wait_period)
  * hpref_synchronize: Wait for hazard pointer slots to be cleared.
  *
  * With a non-NULL @node argument, wait to observe that each slot
- * contains a value that differs from @node.
+ * contains a value that is not within the range:
+ *
+ *  [addr, addr + length - 1].
  *
  * With a NULL @node argument, wait to observe either NULL or a pointer
  * value transition for each slot, thus ensuring all pre-existing hazard
  * pointers were cleared at some point before completing the
  * synchronize.
  */
-void hpref_synchronize(struct hpref_node *node)
+void hpref_synchronize(void *addr, size_t length)
 {
 	/* Memory ordering: Store A before Load B. */
 	cmm_smp_mb();
 	pthread_mutex_lock(&hpref_sync_lock);
-	if (node) {
+	if (addr && length <= sizeof(struct hpref_node)) {
 		/*
 		 * Waiting for a single node can be done by scanning
 		 * all slots for each period.
 		 */
-		hpref_scan_wait(node, 0);
+		hpref_scan_wait(addr, length, 0);
 	} else {
 		int wait_period;
 
@@ -204,9 +206,9 @@ void hpref_synchronize(struct hpref_node *node)
 		 * same slot to prevent forward progress of synchronize.
 		 */
 		wait_period = hpref_period ^ 1;
-		hpref_scan_wait(NULL, wait_period);
+		hpref_scan_wait(addr, length, wait_period);
 		uatomic_store(&hpref_period, wait_period, CMM_RELAXED);
-		hpref_scan_wait(NULL, wait_period ^ 1);
+		hpref_scan_wait(addr, length, wait_period ^ 1);
 	}
 	pthread_mutex_unlock(&hpref_sync_lock);
 }
@@ -227,7 +229,7 @@ void hpref_synchronize_put(struct hpref_node *node)
 {
 	if (!node)
 		return;
-	hpref_synchronize(node);
+	hpref_synchronize(node, sizeof(struct hpref_node));
 	hpref_node_put(node);
 }
 

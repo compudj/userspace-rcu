@@ -112,14 +112,16 @@ extern unsigned int hpref_period;
  * hpref_synchronize: Wait for hazard pointer slots to be cleared.
  *
  * With a non-NULL @node argument, wait to observe that each slot
- * contains a value that differs from @node.
+ * contains a value that is not within the range:
+ *
+ *  [addr, addr + length - 1].
  *
  * With a NULL @node argument, wait to observe either NULL or a pointer
  * value transition for each slot, thus ensuring all pre-existing hazard
  * pointers were cleared at some point before completing the
  * synchronize.
  */
-void hpref_synchronize(struct hpref_node *node);
+void hpref_synchronize(void *addr, size_t length);
 
 /*
  * Put node reference count. Should be used after synchronize.
