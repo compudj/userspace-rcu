@@ -31,6 +31,7 @@ nobase_include_HEADERS = \
 	urcu/flavor.h \
 	urcu/futex.h \
 	urcu/hlist.h \
+	urcu/hpref.h \
 	urcu/lfstack.h \
 	urcu/list.h \
 	urcu/hplist.h \
